@@ -200,6 +200,7 @@ async def test_sync_adds_new_domains_and_removes_only_what_it_pushed(hass, site_
     assert update.await_args.kwargs["insert"] == []
     assert sorted(p for p, _ in update.await_args.kwargs["remove"]) == ["*.b.example", "b.example"]
     assert second["removed"] == ["*.b.example", "b.example"]
+    assert second["removed_count"] == 2
 
 
 async def test_sync_refuses_a_list_over_the_cap(hass, site_services, aioclient_mock) -> None:
@@ -209,3 +210,23 @@ async def test_sync_refuses_a_list_over_the_cap(hass, site_services, aioclient_m
         await _call(hass, "sync_site_list", {"child_id": CHILD, "url": LIST_URL, "max_domains": 3})
 
     site_services.client.async_update_website_restrictions.assert_not_called()
+
+
+async def test_sync_stop_removes_what_the_list_added_and_forgets_it(hass, site_services, aioclient_mock) -> None:
+    update = site_services.client.async_update_website_restrictions
+    lists = site_services.client.async_get_website_restrictions
+    aioclient_mock.get(LIST_URL, text="a.example\n")
+    lists.return_value = {"filter_level": "safeSites", "approved": [], "blocked": ["manual.example"]}
+    await _call(hass, "sync_site_list", {"child_id": CHILD, "url": LIST_URL})
+
+    lists.return_value = {"filter_level": "safeSites", "approved": [], "blocked": ["manual.example", "*.a.example", "a.example"]}
+    stopped = await _call(hass, "sync_site_list", {"child_id": CHILD, "url": LIST_URL, "stop": True})
+
+    assert sorted(p for p, _ in update.await_args.kwargs["remove"]) == ["*.a.example", "a.example"]
+    assert stopped["removed_count"] == 2
+    # Forgotten: a second stop has nothing to remove and makes no call
+    calls = update.await_count
+    again = await _call(hass, "sync_site_list", {"child_id": CHILD, "url": LIST_URL, "stop": True})
+    assert again["removed_count"] == 0
+    assert update.await_count == calls
+

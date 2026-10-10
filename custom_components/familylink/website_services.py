@@ -48,7 +48,10 @@ SCHEMA_SYNC_SITE_LIST = vol.Schema({
 	**_TARGET,
 	vol.Required("url"): cv.url,
 	vol.Optional("max_domains", default=MAX_SYNC_DOMAINS): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_SYNC_DOMAINS)),
+	vol.Optional("stop", default=False): cv.boolean,
 })
+# Responses list at most this many patterns; counts are always complete
+RESPONSE_SAMPLE = 20
 
 
 def _resolve_child(hass: HomeAssistant, call: ServiceCall) -> str:
@@ -136,6 +139,8 @@ async def async_setup_website_services(hass: HomeAssistant, coordinator: Any) ->
 	async def handle_sync_site_list(call: ServiceCall) -> ServiceResponse:
 		child_id = _resolve_child(hass, call)
 		url = call.data["url"]
+		if call.data["stop"]:
+			return await _stop_sync(child_id, url)
 		try:
 			async with async_get_clientsession(hass).get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
 				response.raise_for_status()
@@ -172,19 +177,33 @@ async def async_setup_website_services(hass: HomeAssistant, coordinator: Any) ->
 			(pushed | {p for p, _ in insert}) - {p for p, _ in remove} - set((result.get("covered") or {}))
 		)
 		await store.async_save(data)
-		summary = {
+		added = [p for p, _ in insert if p not in (result.get("covered") or {})]
+		removed = [p for p, _ in remove]
+		_LOGGER.info(
+			f"Site list sync for {child_id} from {url}: +{len(added)} -{len(removed)}, {len(skipped)} left approved"
+		)
+		return {
 			"child_id": child_id,
 			"url": url,
 			"domains": len(domains),
-			"added": [p for p, _ in insert if p not in (result.get("covered") or {})],
-			"removed": [p for p, _ in remove],
-			"skipped_approved": skipped,
+			"added_count": len(added),
+			"added": added[:RESPONSE_SAMPLE],
+			"removed_count": len(removed),
+			"removed": removed[:RESPONSE_SAMPLE],
+			"skipped_approved": skipped[:RESPONSE_SAMPLE],
 		}
-		_LOGGER.info(
-			f"Site list sync for {child_id} from {url}: +{len(summary['added'])} -{len(summary['removed'])}, "
-			f"{len(summary['skipped_approved'])} left approved"
-		)
-		return summary
+
+	async def _stop_sync(child_id: str, url: str) -> dict[str, Any]:
+		"""Take out everything a list pushed for the child, and forget the list."""
+		data = await store.async_load() or {}
+		pushed = set(data.get(child_id, {}).pop(url, []))
+		current = await _client().async_get_website_restrictions(child_id)
+		remove = [(p, "BLOCK") for p in sorted(pushed) if p in set(current["blocked"])]
+		if remove:
+			await _apply(child_id, [], remove)
+		await store.async_save(data)
+		_LOGGER.info(f"Site list sync for {child_id} from {url} stopped: removed {len(remove)}")
+		return {"child_id": child_id, "url": url, "stopped": True, "removed_count": len(remove), "removed": [p for p, _ in remove][:RESPONSE_SAMPLE]}
 
 	for service, handler, schema, response in (
 		(SERVICE_GET_SITES, handle_get_sites, SCHEMA_GET_SITES, SupportsResponse.ONLY),

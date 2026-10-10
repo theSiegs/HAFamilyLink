@@ -682,3 +682,10 @@ sync_site_list:
           min: 1
           max: 2000
           mode: box
+    stop:
+      name: Stop syncing
+      description: Remove everything this list added for the child and stop tracking it.
+      required: false
+      default: false
+      selector:
+        boolean:

@@ -16,6 +16,7 @@ from homeassistant.core import Context
 from homeassistant.exceptions import Unauthorized, UnknownUser
 
 from custom_components.familylink import async_setup_services
+from custom_components.familylink.website_services import async_setup_website_services
 from custom_components.familylink.const import DOMAIN
 
 PHONE = "switch.kid_phone"
@@ -45,6 +46,11 @@ ALL_SERVICES = [
     ("refresh_location", {}),
     ("ring_device", {}),
     ("set_update_interval", {"seconds": 300}),
+    ("get_sites", {}),
+    ("block_site", {"sites": ["www.example.com"]}),
+    ("allow_site", {"sites": ["www.example.com"]}),
+    ("remove_site", {"sites": ["www.example.com"]}),
+    ("sync_site_list", {"url": "https://example.com/list.txt"}),
 ]
 
 
@@ -55,6 +61,7 @@ async def services(hass, coordinator):
         PHONE, "on", {"device_id": PHONE_DEVICE_ID, "child_id": CHILD_ID}
     )
     await async_setup_services(hass, coordinator)
+    await async_setup_website_services(hass, coordinator)
     return coordinator
 
 
@@ -69,7 +76,9 @@ def _user(hass, *, is_admin: bool = False, policy: dict | None = None) -> MockUs
 
 async def _call(hass, service: str, data: dict, user: MockUser | None = None) -> None:
     context = Context(user_id=user.id) if user else Context()
-    await hass.services.async_call(DOMAIN, service, data, blocking=True, context=context)
+    # get_sites only returns data, so it must be called asking for the response
+    extra = {"return_response": True} if service == "get_sites" else {}
+    await hass.services.async_call(DOMAIN, service, data, blocking=True, context=context, **extra)
 
 
 async def test_every_registered_service_is_covered(hass, services) -> None:

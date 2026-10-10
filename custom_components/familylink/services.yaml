@@ -545,3 +545,140 @@ set_update_interval:
           max: 3600
           unit_of_measurement: seconds
           mode: box
+
+get_sites:
+  name: Get Sites
+  description: "Read a child's Chrome site lists (Family Link 'Google Chrome and Web'): the filter level and every approved and blocked site, including ones added in the Family Link app. Returns the lists as a response."
+  fields:
+    entity_id:
+      name: Child Entity
+      description: Select any Family Link entity of the child
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+
+block_site:
+  name: Block Site
+  description: "Block websites in the child's Chrome (all devices where the child is signed in to Chrome). A site that was approved becomes blocked. Only Chrome is filtered: other browsers need block_app."
+  fields:
+    entity_id:
+      name: Child Entity
+      description: Select any Family Link entity of the child
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+    sites:
+      name: Sites
+      description: "Websites (www.example.com), domain wildcards (*.example.com, *.example.*) or web addresses (https://example.com/page). Wildcards only as a leading '*.' or a trailing '.*'."
+      required: true
+      example: "www.example.com"
+      selector:
+        text:
+          multiple: true
+
+allow_site:
+  name: Allow Site
+  description: "Approve websites in the child's Chrome. A site that was blocked becomes approved. A block on a wider pattern (e.g. *.example.*) still wins over an approval."
+  fields:
+    entity_id:
+      name: Child Entity
+      description: Select any Family Link entity of the child
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+    sites:
+      name: Sites
+      description: "Websites (www.example.com), domain wildcards (*.example.com, *.example.*) or web addresses (https://example.com/page). Wildcards only as a leading '*.' or a trailing '.*'."
+      required: true
+      example: "www.example.com"
+      selector:
+        text:
+          multiple: true
+
+remove_site:
+  name: Remove Site
+  description: "Remove websites from the child's approved or blocked list, whoever added them."
+  fields:
+    entity_id:
+      name: Child Entity
+      description: Select any Family Link entity of the child
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+    sites:
+      name: Sites
+      description: "Websites (www.example.com), domain wildcards (*.example.com, *.example.*) or web addresses (https://example.com/page). Wildcards only as a leading '*.' or a trailing '.*'."
+      required: true
+      example: "www.example.com"
+      selector:
+        text:
+          multiple: true
+
+sync_site_list:
+  name: Sync Site List
+  description: "Keep the child's blocked sites in step with a published list of domains (one per line, '#' comments). Adds what the list gained, removes only what this list added before and has since dropped; entries made by hand and approved sites are left alone."
+  fields:
+    entity_id:
+      name: Child Entity
+      description: Select any Family Link entity of the child
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+    url:
+      name: List URL
+      description: "Raw URL of the domain list, e.g. https://raw.githubusercontent.com/theSiegs/kid-web-gaps/main/gaps.txt"
+      required: true
+      example: "https://raw.githubusercontent.com/theSiegs/kid-web-gaps/main/gaps.txt"
+      selector:
+        text:
+          type: url
+    max_domains:
+      name: Maximum domains
+      description: Refuse a list longer than this (safety cap).
+      required: false
+      default: 2000
+      selector:
+        number:
+          min: 1
+          max: 2000
+          mode: box

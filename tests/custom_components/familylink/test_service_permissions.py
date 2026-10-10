@@ -16,6 +16,7 @@ from homeassistant.core import Context
 from homeassistant.exceptions import Unauthorized, UnknownUser
 
 from custom_components.familylink import async_setup_services
+from custom_components.familylink.app_pause import async_setup_app_pause_services
 from custom_components.familylink.const import DOMAIN
 
 PHONE = "switch.kid_phone"
@@ -45,6 +46,8 @@ ALL_SERVICES = [
     ("refresh_location", {}),
     ("ring_device", {}),
     ("set_update_interval", {"seconds": 300}),
+    ("pause_app", {"packages": ["com.example.app"]}),
+    ("resume_app", {}),
 ]
 
 
@@ -55,6 +58,7 @@ async def services(hass, coordinator):
         PHONE, "on", {"device_id": PHONE_DEVICE_ID, "child_id": CHILD_ID}
     )
     await async_setup_services(hass, coordinator)
+    await async_setup_app_pause_services(hass, coordinator)
     return coordinator
 
 

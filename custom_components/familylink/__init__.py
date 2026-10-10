@@ -44,6 +44,7 @@ from .const import (
 	SERVICE_UNBLOCK_ALL_APPS,
 	SERVICE_UNBLOCK_APP,
 )
+from .app_pause import async_remove_app_pause_services, async_setup_app_pause_services
 from .coordinator import FamilyLinkDataUpdateCoordinator
 from .permissions import async_register_guarded_service
 from .website_services import async_remove_website_services, async_setup_website_services
@@ -266,6 +267,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 		# Register services
 		await async_setup_services(hass, coordinator)
 		await async_setup_website_services(hass, coordinator)
+		await async_setup_app_pause_services(hass, coordinator)
 
 		_LOGGER.info("Successfully set up Family Link integration")
 		return True
@@ -1212,6 +1214,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 			hass.services.async_remove(DOMAIN, SERVICE_RING_DEVICE)
 			hass.services.async_remove(DOMAIN, SERVICE_SET_UPDATE_INTERVAL)
 			async_remove_website_services(hass)
+			async_remove_app_pause_services(hass)
 			_LOGGER.debug("Family Link services unregistered")
 
 	return unload_ok

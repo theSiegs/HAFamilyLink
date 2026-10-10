@@ -17,6 +17,7 @@ from homeassistant.exceptions import Unauthorized, UnknownUser
 
 from custom_components.familylink import async_setup_services
 from custom_components.familylink.website_services import async_setup_website_services
+from custom_components.familylink.app_pause import async_setup_app_pause_services
 from custom_components.familylink.const import DOMAIN
 
 PHONE = "switch.kid_phone"
@@ -51,6 +52,8 @@ ALL_SERVICES = [
     ("allow_site", {"sites": ["www.example.com"]}),
     ("remove_site", {"sites": ["www.example.com"]}),
     ("sync_site_list", {"url": "https://example.com/list.txt"}),
+    ("pause_app", {"packages": ["com.example.app"]}),
+    ("resume_app", {}),
 ]
 
 
@@ -62,6 +65,7 @@ async def services(hass, coordinator):
     )
     await async_setup_services(hass, coordinator)
     await async_setup_website_services(hass, coordinator)
+    await async_setup_app_pause_services(hass, coordinator)
     return coordinator
 
 

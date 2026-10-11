@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **`pause_app` / `resume_app` services** - Pause apps for one child with a 1-minute daily limit instead of blocking them, and put back each app's earlier setting (limit, unlimited or none) afterwards. A paused app stays installed; a blocked Google Messages loses the texts that arrive while it is blocked, a paused one keeps them. The earlier settings are stored and survive restarts.
+- **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.
 
 ---
 

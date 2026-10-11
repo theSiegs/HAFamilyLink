@@ -34,6 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   ```
   Calls with an entity or a `child_id` are unchanged. `refresh_location` and the time-limit services keep their current defaults.
 
+### Fixed
+- **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
+
 ---
 
 ## [2.2.6] - 2026-10-08

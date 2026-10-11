@@ -46,6 +46,7 @@ from .const import (
 )
 from .app_pause import async_remove_app_pause_services, async_setup_app_pause_services
 from .coordinator import FamilyLinkDataUpdateCoordinator
+from .devices import time_limit_device_ids
 from .permissions import async_register_guarded_service
 from .website_services import async_remove_website_services, async_setup_website_services
 from .exceptions import FamilyLinkException
@@ -791,21 +792,16 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 
 		# A child_id on its own targets every device of that child (issue
 		# #148): the daily limit is a per-device override on Google's side,
-		# so the call is fanned out to each known device of the child.
+		# so the call is fanned out to each known device of the child that
+		# takes time limits (not a Google TV, #173).
 		if device_id:
 			device_ids = [device_id]
 		elif child_id:
-			device_ids = [
-				device["id"]
-				for child in (coordinator.data or {}).get("children_data", [])
-				if child.get("child_id") == child_id
-				for device in child.get("devices", [])
-				if device.get("id")
-			]
+			device_ids = time_limit_device_ids(coordinator.data, child_id)
 			if not device_ids:
 				raise ValueError(
-					f"No device known for child_id {child_id}. Check the child_id "
-					"or select a device entity instead."
+					f"No device of child_id {child_id} takes a daily limit. Check the "
+					"child_id or select a device entity instead."
 				)
 		else:
 			raise ValueError(

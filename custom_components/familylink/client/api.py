@@ -753,6 +753,11 @@ class FamilyLinkClient:
 					return None
 
 				location_array = child_data[2] if len(child_data) > 2 else None
+				# A child with no device sharing location gets no location array:
+				# that's normal, not worth a warning on every poll
+				if not location_array:
+					_LOGGER.debug(f"No location shared for child {account_id}")
+					return None
 				if not isinstance(location_array, list) or len(location_array) < 2:
 					_LOGGER.warning(f"Invalid location array for child {account_id}")
 					return None

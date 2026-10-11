@@ -636,7 +636,7 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 			"app_count": len(screen_time.get("app_breakdown", {})),
 		}
 
-		# Earlier days Google returned (usually the last week), in minutes
+		# Earlier days Google returned (up to the last 30 days), in minutes
 		daily_totals = screen_time.get("daily_totals") or {}
 		today = screen_time.get("date")
 		if daily_totals and today:

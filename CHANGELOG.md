@@ -52,7 +52,7 @@ Four fixes: an empty members answer keeps the children, a child's daily limit sk
 - **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.
 
 ### Added
-- **Usage history and recent apps** - The child's daily screen time sensor gains `yesterday_minutes`, `last_7_days_minutes` and a `history` of the earlier days Google returns (usually about a week), `data_updated` (when Google last received usage from the child's devices), and `recent_apps`: the apps whose usage grew in the last 30 minutes, with device and time. Google only reports daily totals, so `recent_apps` follows the devices' uploads, about every 5 minutes for a phone in use and every 15-20 minutes for a tablet.
+- **Usage history and recent apps** - The child's daily screen time sensor gains `yesterday_minutes`, `last_7_days_minutes` and a `history` of the earlier days Google returns (up to the last 30 days), `data_updated` (when Google last received usage from the child's devices), and `recent_apps`: the apps whose usage grew in the last 30 minutes, with device and time. Google only reports daily totals, so `recent_apps` follows the devices' uploads, about every 5 minutes for a phone in use and every 15-20 minutes for a tablet.
 
 ---
 

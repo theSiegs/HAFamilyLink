@@ -55,6 +55,9 @@ from .strict_mode import (
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
+# An app counts as recently used when its usage grew within this window
+RECENT_USAGE_WINDOW = timedelta(minutes=30)
+
 
 def _gate_windows_on_policy_state(
 	devices_time_data: dict[str, dict[str, Any]],
@@ -101,6 +104,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		self._pending_lock_states: dict[str, tuple[bool, float]] = {}  # device_id -> (locked, timestamp)
 		self._pending_time_limit_states: dict[str, dict[str, tuple[bool, float]]] = {}  # child_id -> {"bedtime": (enabled, timestamp), "school_time": (enabled, timestamp), "daily_limit": (enabled, timestamp)}
 		self._last_known_data: dict[str, Any] | None = None  # Cache for last successful fetch
+		# Per child: (package, device) -> seconds seen at the last refresh, and when they last grew
+		self._usage_seen: dict[str, tuple[Any, dict[tuple[str, str], float]]] = {}
+		self._usage_last_grew: dict[str, dict[tuple[str, str], Any]] = {}
 		self.child_device_ids: dict[str, str] = {}  # child_id -> registry id of the child's hub device
 		# Chrome site lists change rarely: read every WEBSITES_REFRESH seconds,
 		# and taken from the answer of a change made from Home Assistant (store_websites).
@@ -556,6 +562,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 
 			websites = await self._async_child_websites(child_id, child_name)
 
+			recent_apps = self._track_recent_usage(child_id, screen_time)
+
 			# Store data for this child
 			child_data = {
 				"child": child,
@@ -565,6 +573,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"time_limit_fresh": time_limit_fresh,
 				"applied_limits_fresh": applied_limits_fresh,
 				"screen_time": screen_time,
+				"recent_apps": recent_apps,
 				"location": location,
 				"contact_restriction": contact_restriction,
 				"websites": websites,
@@ -881,6 +890,37 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 	def store_websites(self, child_id: str, lists: dict[str, Any]) -> None:
 		"""Keep the lists an update returned, so entities show them without a new read."""
 		self._websites[child_id] = (time.monotonic(), {k: lists.get(k) for k in ("filter_level", "approved", "blocked")})
+
+	def _track_recent_usage(self, child_id: str, screen_time: dict[str, Any] | None) -> list[dict[str, Any]]:
+		"""Apps whose usage grew in the last RECENT_USAGE_WINDOW, newest first.
+
+		Google only has daily totals per app and device, so an app counts as
+		in use when its total grows between two refreshes. Devices upload in
+		batches (about every 5 minutes for a phone in use, 15-20 for a tablet),
+		so this lags real use by that much.
+		"""
+		if not screen_time:
+			return []
+		now = dt_util.utcnow()
+		day = screen_time.get("date")
+		seen_day, seen = self._usage_seen.get(child_id, (None, {}))
+		last_grew = self._usage_last_grew.setdefault(child_id, {})
+		current: dict[tuple[str, str], float] = {}
+		for item in screen_time.get("app_device_usage") or []:
+			key = (item.get("package"), item.get("device_id"))
+			current[key] = item.get("seconds") or 0
+			# The first refresh of a day (or after a restart) only sets the baseline
+			if seen_day == day and current[key] > seen.get(key, 0) + 1:
+				last_grew[key] = now
+		self._usage_seen[child_id] = (day, current)
+		for key in [k for k, when in last_grew.items() if now - when > RECENT_USAGE_WINDOW]:
+			del last_grew[key]
+		devices = screen_time.get("device_names") or {}
+		recent = [
+			{"package": pkg, "device_id": dev, "device": devices.get(dev, dev), "last_active": when.isoformat()}
+			for (pkg, dev), when in last_grew.items()
+		]
+		return sorted(recent, key=lambda app: app["last_active"], reverse=True)
 
 	def record_daily_limit_minutes(self, child_id: str | None, minutes: int, day: int | None = None) -> int | None:
 		"""A weekday quota set from HA becomes the reference for that weekday (strict mode).

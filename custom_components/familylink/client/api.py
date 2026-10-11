@@ -526,6 +526,8 @@ class FamilyLinkClient:
 			app_breakdown = {}
 			device_screen_time: dict[str, dict[str, Any]] = {}
 			device_app_seconds: dict[tuple[str, str], float] = {}
+			# Every day Google returns (usually the last week), not just target_date
+			daily_totals: dict[str, float] = {}
 			unattributed_sessions = 0
 
 			# Extract devices map: deviceId -> friendlyName/model
@@ -552,6 +554,11 @@ class FamilyLinkClient:
 
 			for session in all_sessions:
 				session_date = session.get("date", {})
+				try:
+					day_key = f"{session_date['year']:04d}-{session_date['month']:02d}-{session_date['day']:02d}"
+					daily_totals[day_key] = daily_totals.get(day_key, 0) + float(session.get("usage", "0s").rstrip("s"))
+				except (AttributeError, KeyError, TypeError, ValueError):
+					pass
 
 				# Check if this session is for the target date
 				if (session_date.get("year") == target_date.year and
@@ -662,6 +669,9 @@ class FamilyLinkClient:
 				"device_names": device_names,
 				"app_device_usage": app_device_usage,
 				"date": target_date.date(),
+				"daily_totals": dict(sorted(daily_totals.items())),
+				# When Google last received usage from the child's devices (epoch ms)
+				"data_refreshed_ms": data.get("lastActivityRefreshTimestampMillis"),
 			}
 
 		except SessionExpiredError:

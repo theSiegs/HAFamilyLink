@@ -526,7 +526,7 @@ class FamilyLinkClient:
 			app_breakdown = {}
 			device_screen_time: dict[str, dict[str, Any]] = {}
 			device_app_seconds: dict[tuple[str, str], float] = {}
-			# Every day Google returns (usually the last week), not just target_date
+			# Every day Google returns (up to the last 30 days), not just target_date
 			daily_totals: dict[str, float] = {}
 			unattributed_sessions = 0
 

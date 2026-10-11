@@ -48,6 +48,9 @@ Four fixes: an empty members answer keeps the children, a child's daily limit sk
 ### Fixed
 - **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
 
+### Added
+- **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.
+
 ---
 
 ## [2.2.6] - 2026-10-08

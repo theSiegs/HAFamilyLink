@@ -248,12 +248,7 @@ class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
                         child_data = c
                         break
 
-            app_names: dict[str, str] = {}
-            if child_data:
-                for app in child_data.get("apps", []):
-                    pkg = app.get("packageName", "")
-                    if pkg:
-                        app_names[pkg] = app.get("title", pkg)
+            details = _app_details(child_data)
 
             sorted_apps = sorted(app_breakdown.items(), key=lambda x: x[1], reverse=True)
             apps_list = []
@@ -261,12 +256,16 @@ class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
                 h = int(secs // 3600)
                 m = int((secs % 3600) // 60)
                 s = int(secs % 60)
-                apps_list.append({
-                    "name": app_names.get(pkg, pkg),
+                name, icon_url = details.get(pkg, (pkg, None))
+                entry = {
+                    "name": name,
                     "package": pkg,
                     "time": f"{h:02d}:{m:02d}:{s:02d}",
                     "minutes": round(secs / 60, 1),
-                })
+                }
+                if icon_url:
+                    entry["icon_url"] = icon_url
+                apps_list.append(entry)
             truncated_apps, was_truncated = _truncate_app_list(apps_list, attributes)
             attributes["apps"] = truncated_apps
             if was_truncated:
@@ -690,12 +689,7 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 		# Add all apps by usage (dynamically truncated to fit HA's 16KB limit)
 		app_breakdown = screen_time.get("app_breakdown", {})
 		if app_breakdown:
-			# Build package-to-name lookup from apps data
-			app_names: dict[str, str] = {}
-			for app in child_data.get("apps", []):
-				pkg = app.get("packageName", "")
-				if pkg:
-					app_names[pkg] = app.get("title", pkg)
+			details = _app_details(child_data)
 
 			sorted_apps = sorted(
 				app_breakdown.items(),
@@ -708,12 +702,16 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 				hours = int(seconds // 3600)
 				mins = int((seconds % 3600) // 60)
 				secs = int(seconds % 60)
-				app_list.append({
-					"name": app_names.get(package, package),
+				name, icon_url = details.get(package, (package, None))
+				entry = {
+					"name": name,
 					"package": package,
 					"time": f"{hours:02d}:{mins:02d}:{secs:02d}",
 					"minutes": round(seconds / 60, 1),
-				})
+				}
+				if icon_url:
+					entry["icon_url"] = icon_url
+				app_list.append(entry)
 
 			truncated_apps, was_truncated = _truncate_app_list(app_list, attributes)
 			attributes["apps"] = truncated_apps
@@ -845,6 +843,16 @@ class FamilyLinkAppCountSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 
 
 MAX_ATTR_SIZE = 15000  # Stay under HA's 16KB state_attributes limit
+
+
+def _app_details(child_data: dict | None) -> dict[str, tuple[str, str | None]]:
+	"""Package name -> (title, icon URL) from the child's app list."""
+	details: dict[str, tuple[str, str | None]] = {}
+	for app in (child_data or {}).get("apps", []):
+		pkg = app.get("packageName")
+		if pkg:
+			details[pkg] = (app.get("title", pkg), app.get("iconUrl") or None)
+	return details
 
 
 def _truncate_app_list(apps: list[dict], base_attrs: dict) -> tuple[list[dict], bool]:
@@ -1257,6 +1265,11 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		return len(app_breakdown) >= self._rank
 
 	@property
+	def entity_picture(self) -> str | None:
+		"""The app's icon, so cards show it instead of the star."""
+		return self.extra_state_attributes.get("icon_url")
+
+	@property
 	def extra_state_attributes(self) -> dict[str, Any]:
 		"""Return extra state attributes."""
 		child_data = self._get_child_data()
@@ -1274,13 +1287,7 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		sorted_apps = sorted(app_breakdown.items(), key=lambda x: x[1], reverse=True)
 		package, seconds = sorted_apps[self._rank - 1]
 
-		# Find app details
-		app_name = package
-		apps = child_data.get("apps", [])
-		for app in apps:
-			if app.get("packageName") == package:
-				app_name = app.get("title", package)
-				break
+		app_name, icon_url = _app_details(child_data).get(package, (package, None))
 
 		hours = int(seconds // 3600)
 		mins = int((seconds % 3600) // 60)
@@ -1292,6 +1299,7 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 			"rank": self._rank,
 			"app_name": app_name,
 			"package_name": package,
+			"icon_url": icon_url,
 			"total_seconds": seconds,
 			"formatted_time": f"{hours:02d}:{mins:02d}:{secs:02d}",
 			"hours": hours,

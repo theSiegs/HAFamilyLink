@@ -17,6 +17,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **A daily limit set for a child no longer fails because of the child's Google TV** (#173) - `familylink.set_daily_limit` with only a `child_id`, and today's weekday daily-limit number, post the quota as a per-device override on every device of the child, the TV included. A Google TV / Chromecast takes no time limits, so Google never applied the override there and the readback reported it as not applied: the service raised although the phone and tablet had taken the new quota, and the number put strict mode's previous reference back. Both now skip devices that advertise no time-limit capability (the same check as the entities since 2.2.6; a device without a capability list is still included). A `device_id` given explicitly is still targeted as before.
 
+### ⚠️ Breaking change
+- **App services no longer change every child when no child is given** - `familylink.block_app`, `unblock_app`, `set_app_daily_limit`, `block_device_for_school` and `unblock_all_apps` used to apply to **all** supervised children when called without `entity_id` or `child_id`, and also when the entity given had no child (#73). An automation could change every child by mistake, for example through a templated `child_id` that came out empty. They now raise an error unless they get a child, or the new field `all_children: true`.
+
+  **To migrate**, add `all_children: true` to calls that are meant for every child:
+  ```yaml
+  # Before
+  action: familylink.block_app
+  data:
+    package_name: com.google.android.youtube
+  # After
+  action: familylink.block_app
+  data:
+    package_name: com.google.android.youtube
+    all_children: true
+  ```
+  Calls with an entity or a `child_id` are unchanged. `refresh_location` and the time-limit services keep their current defaults.
+
 ---
 
 ## [2.2.6] - 2026-10-08

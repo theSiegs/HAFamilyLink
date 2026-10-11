@@ -1,7 +1,7 @@
 """Sensor platform for Google Family Link integration."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 from typing import Any
@@ -634,6 +634,29 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 			"date": str(screen_time.get("date", datetime.now().date())),
 			"app_count": len(screen_time.get("app_breakdown", {})),
 		}
+
+		# Earlier days Google returned (usually the last week), in minutes
+		daily_totals = screen_time.get("daily_totals") or {}
+		today = screen_time.get("date")
+		if daily_totals and today:
+			days = [str(today - timedelta(days=n)) for n in range(7)]
+			attributes["yesterday_minutes"] = round(daily_totals.get(days[1], 0) / 60, 1)
+			attributes["last_7_days_minutes"] = round(sum(daily_totals.get(d, 0) for d in days) / 60, 1)
+			attributes["history"] = {d: round(s / 60, 1) for d, s in daily_totals.items() if d != str(today)}
+
+		# When Google last received usage from the child's devices
+		refreshed_ms = screen_time.get("data_refreshed_ms")
+		if refreshed_ms:
+			try:
+				attributes["data_updated"] = dt_util.utc_from_timestamp(int(refreshed_ms) / 1000).isoformat()
+			except (TypeError, ValueError):
+				pass
+
+		# Apps whose usage grew in the last 30 minutes, newest first
+		recent = child_data.get("recent_apps") or []
+		if recent:
+			names = {app.get("packageName"): app.get("title") for app in child_data.get("apps", [])}
+			attributes["recent_apps"] = [{"name": names.get(app["package"]) or app["package"], **app} for app in recent]
 
 		# Add per-device screen time breakdown
 		device_screen_time = screen_time.get("device_screen_time", {})

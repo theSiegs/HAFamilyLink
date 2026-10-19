@@ -18,11 +18,12 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.familylink import async_setup_services
 from custom_components.familylink.client.api import FamilyLinkClient
-from custom_components.familylink.const import DOMAIN
+from custom_components.familylink.const import CAP_APP_ACTIVITY, DOMAIN
 
 CHILD_ID = "child-1"
 PHONE = "device-phone"
 NEW_TABLET = "device-new-tablet"
+GOOGLE_TV = "device-google-tv"
 
 
 def _client(applied: dict) -> FamilyLinkClient:
@@ -43,7 +44,8 @@ async def test_readback_names_a_device_google_does_not_list_yet(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         assert not await client._async_verify_daily_limit_applied(CHILD_ID, NEW_TABLET, 45)
 
-    assert "lists no time limits for this device yet" in caplog.text
+    assert "lists no time limits for this device." in caplog.text
+    assert "a Google TV, never is" in caplog.text
     assert "issue #157" not in caplog.text
 
 
@@ -69,7 +71,11 @@ async def services(hass, coordinator):
         "children_data": [
             {
                 "child_id": CHILD_ID,
-                "devices": [{"id": PHONE}, {"id": NEW_TABLET}],
+                "devices": [
+                    {"id": PHONE},
+                    {"id": NEW_TABLET},
+                    {"id": GOOGLE_TV, "capabilities": [CAP_APP_ACTIVITY]},
+                ],
                 "devices_time_data": {PHONE: {"daily_limit_minutes": 120}},
             }
         ]
@@ -95,6 +101,47 @@ async def test_service_error_has_no_hint_for_a_listed_device(hass, services) -> 
     with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call(
             DOMAIN, "set_daily_limit", {"device_id": PHONE, "child_id": CHILD_ID, "daily_minutes": 45}, blocking=True
+        )
+
+    assert "yet" not in str(err.value)
+
+
+async def test_service_error_hints_without_a_child_id(hass, services) -> None:
+    services.client.async_set_daily_limit = AsyncMock(return_value=False)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(DOMAIN, "set_daily_limit", {"device_id": NEW_TABLET, "daily_minutes": 45}, blocking=True)
+
+    assert "no time limits for device(s) device-new-tablet yet" in str(err.value)
+
+
+async def test_service_error_has_no_hint_for_a_listed_device_without_a_child_id(hass, services) -> None:
+    services.client.async_set_daily_limit = AsyncMock(return_value=False)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(DOMAIN, "set_daily_limit", {"device_id": PHONE, "daily_minutes": 45}, blocking=True)
+
+    assert "yet" not in str(err.value)
+
+
+async def test_service_error_has_no_hint_for_a_google_tv(hass, services) -> None:
+    services.client.async_set_daily_limit = AsyncMock(return_value=False)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            DOMAIN, "set_daily_limit", {"device_id": GOOGLE_TV, "child_id": CHILD_ID, "daily_minutes": 45}, blocking=True
+        )
+
+    assert "device-google-tv" in str(err.value)
+    assert "yet" not in str(err.value)
+
+
+async def test_service_error_has_no_hint_for_a_device_the_coordinator_does_not_know(hass, services) -> None:
+    services.client.async_set_daily_limit = AsyncMock(return_value=False)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            DOMAIN, "set_daily_limit", {"device_id": "device-unknown", "child_id": CHILD_ID, "daily_minutes": 45}, blocking=True
         )
 
     assert "yet" not in str(err.value)

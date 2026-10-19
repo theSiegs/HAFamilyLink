@@ -2952,8 +2952,9 @@ class FamilyLinkClient:
 				# minutes later
 				_LOGGER.warning(
 					f"Daily limit for device {device_id} not applied: Google lists no "
-					f"time limits for this device yet. A newly supervised device is "
-					f"only listed after a while (about 30 minutes seen); try again later"
+					f"time limits for this device. A newly supervised device is only "
+					f"listed after a while (about 30 minutes seen), so try again later; "
+					f"a device that takes no time limits, such as a Google TV, never is"
 				)
 				return False
 			_LOGGER.warning(

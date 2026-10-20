@@ -15,6 +15,7 @@ from pytest_homeassistant_custom_component.common import MockUser
 
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError, Unauthorized
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.familylink.client.api import FamilyLinkClient
 from custom_components.familylink.const import DOMAIN, WEBSITES_REFRESH
@@ -403,6 +404,8 @@ async def _call_as(hass, user, service, data):
 @pytest.mark.parametrize("stop", [False, True])
 async def test_sync_is_for_administrators_whatever_entity_is_passed(hass, site_services, aioclient_mock, stop) -> None:
     entity = "sensor.kid_screen_time"
+    # The service guard only accepts entities registered by this integration
+    er.async_get(hass).async_get_or_create("sensor", DOMAIN, "kid_screen_time", suggested_object_id="kid_screen_time")
     hass.states.async_set(entity, "1", {"device_id": "device-phone", "child_id": CHILD})
     aioclient_mock.get(LIST_URL, text="a.example\n")
     controller = MockUser().add_to_hass(hass)

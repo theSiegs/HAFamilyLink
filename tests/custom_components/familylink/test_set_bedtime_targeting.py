@@ -26,6 +26,11 @@ BEDTIME = {"start_time": "21:00", "end_time": "07:00", "day": "5"}
 
 @pytest.fixture
 async def services(hass, coordinator):
+    # The service guard only accepts entities registered by this integration
+    er.async_get(hass).async_get_or_create(
+        "sensor", DOMAIN, "second_child_daily_screen_time",
+        suggested_object_id="second_child_daily_screen_time",
+    )
     hass.states.async_set(SECOND_CHILD_SENSOR, "42", {"child_id": SECOND_CHILD_ID})
     await async_setup_services(hass, coordinator)
     return coordinator

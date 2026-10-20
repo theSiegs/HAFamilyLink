@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockUser
 
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.familylink import SCHEMA_SET_DOWNTIME_UNLIMITED_APPS, async_setup_services
 from custom_components.familylink.client.api import FamilyLinkClient
@@ -222,6 +223,11 @@ def test_service_schema_requires_allow() -> None:
 
 @pytest.fixture
 async def services(hass, coordinator):
+    # The service guard only accepts entities registered by this integration
+    er.async_get(hass).async_get_or_create(
+        "switch", DOMAIN, "kid_unlimited_apps_during_downtime",
+        suggested_object_id="kid_unlimited_apps_during_downtime",
+    )
     hass.states.async_set(SWITCH, "on", {"child_id": CHILD_ID, "child_name": "Kid"})
     await async_setup_services(hass, coordinator)
     return coordinator

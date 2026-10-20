@@ -47,7 +47,7 @@ from .const import (
 )
 from .app_pause import async_remove_app_pause_services, async_setup_app_pause_services
 from .coordinator import FamilyLinkDataUpdateCoordinator
-from .devices import time_limit_device_ids
+from .devices import devices_not_listed_yet, time_limit_device_ids
 from .permissions import async_register_guarded_service
 from .website_services import async_remove_website_services, async_setup_website_services
 from .exceptions import FamilyLinkException
@@ -883,15 +883,11 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 				# instead of a silent log line: since #157 the client reads
 				# the value back, so a False here means Google accepted the
 				# request but did not apply it, or rejected it outright.
-				# A device without time-limit data yet (newly supervised) cannot
-				# take an override; say so rather than send the user to the log.
-				timed = {
-					timed_device_id
-					for child in (coordinator.data or {}).get("children_data", [])
-					if child.get("child_id") == child_id
-					for timed_device_id in child.get("devices_time_data") or {}
-				}
-				untimed = [d for d in failed if d != "weekly" and d not in timed]
+				# A device that takes time limits but has no time-limit data yet
+				# (newly supervised) cannot take an override; say so rather than
+				# send the user to the log. "weekly" and devices the coordinator
+				# does not know or that never take time limits get no hint.
+				untimed = devices_not_listed_yet(coordinator.data, failed)
 				hint = (
 					f" Google has no time limits for device(s) {', '.join(untimed)} yet: "
 					"a newly supervised device is only listed after a while (about 30 "

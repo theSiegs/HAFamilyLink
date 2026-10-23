@@ -529,6 +529,8 @@ class FamilyLinkClient:
 			app_breakdown = {}
 			device_screen_time: dict[str, dict[str, Any]] = {}
 			device_app_seconds: dict[tuple[str, str], float] = {}
+			# Every day Google returns (up to the last 30 days), not just target_date
+			daily_totals: dict[str, float] = {}
 			unattributed_sessions = 0
 
 			# Extract devices map: deviceId -> friendlyName/model
@@ -554,20 +556,26 @@ class FamilyLinkClient:
 				_LOGGER.debug(f"First session example: {all_sessions[0]}")
 
 			for session in all_sessions:
+				# Seconds in "1809.5s" format
+				try:
+					usage_seconds = float(session.get("usage", "0s").rstrip("s"))
+				except (AttributeError, ValueError, TypeError):
+					_LOGGER.debug("Invalid usage format: %s", session.get("usage"))
+					usage_seconds = 0
+
 				session_date = session.get("date", {})
+				try:
+					day_key = f"{session_date['year']:04d}-{session_date['month']:02d}-{session_date['day']:02d}"
+				except (AttributeError, KeyError, TypeError, ValueError):
+					day_key = None
+				if day_key:
+					daily_totals[day_key] = daily_totals.get(day_key, 0) + usage_seconds
 
 				# Check if this session is for the target date
 				if (session_date.get("year") == target_date.year and
 					session_date.get("month") == target_date.month and
 					session_date.get("day") == target_date.day):
 
-					# Extract seconds from "1809.5s" format
-					usage_str = session.get("usage", "0s")
-					try:
-						usage_seconds = float(usage_str.rstrip("s"))
-					except (ValueError, TypeError):
-						_LOGGER.debug("Invalid usage format: %s", usage_str)
-						usage_seconds = 0
 					total_seconds += usage_seconds
 
 					# Track per-app usage
@@ -665,6 +673,9 @@ class FamilyLinkClient:
 				"device_names": device_names,
 				"app_device_usage": app_device_usage,
 				"date": target_date.date(),
+				"daily_totals": dict(sorted(daily_totals.items())),
+				# When Google last received usage from the child's devices (epoch ms)
+				"data_refreshed_ms": data.get("lastActivityRefreshTimestampMillis"),
 			}
 
 		except SessionExpiredError:

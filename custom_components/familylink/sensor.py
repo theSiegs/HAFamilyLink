@@ -1,7 +1,7 @@
 """Sensor platform for Google Family Link integration."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 from typing import Any
@@ -566,6 +566,31 @@ class NextRestrictionSensor(CoordinatorEntity, SensorEntity):
         return attributes
 
 
+def _usage_totals_attributes(screen_time: dict[str, Any]) -> dict[str, Any]:
+	"""Earlier days of usage and when Google last got usage, from the appsandusage answer.
+
+	Google returns a day's usage per app and device for up to the last 30 days
+	and leaves out a day without any, so a missing day reads as 0. A device that
+	uploads late can still change a day after the fact.
+	"""
+	attributes: dict[str, Any] = {}
+	daily_totals = screen_time.get("daily_totals") or {}
+	today = screen_time.get("date")
+	if daily_totals and today:
+		# The seven days before today, so the figures do not move while today does
+		days = [str(today - timedelta(days=n)) for n in range(1, 8)]
+		attributes["yesterday_minutes"] = round(daily_totals.get(days[0], 0) / 60, 1)
+		attributes["last_7_days_minutes"] = round(sum(daily_totals.get(d, 0) for d in days) / 60, 1)
+
+	refreshed_ms = screen_time.get("data_refreshed_ms")
+	if refreshed_ms:
+		try:
+			attributes["data_updated"] = dt_util.utc_from_timestamp(int(refreshed_ms) / 1000).isoformat()
+		except (TypeError, ValueError):
+			pass
+	return attributes
+
+
 class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 	"""Sensor for daily screen time in minutes."""
 
@@ -636,6 +661,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 			"date": str(screen_time.get("date", datetime.now().date())),
 			"app_count": len(screen_time.get("app_breakdown", {})),
 		}
+
+		attributes.update(_usage_totals_attributes(screen_time))
 
 		# Add per-device screen time breakdown
 		device_screen_time = screen_time.get("device_screen_time", {})

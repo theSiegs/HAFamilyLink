@@ -14,6 +14,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -26,6 +27,14 @@ from .const import (
     CONF_ENABLE_LOCATION_TRACKING,
     DOMAIN,
     LOGGER_NAME,
+)
+from .app_usage import (
+    APP_USAGE_PER_CHILD,
+    APP_USAGE_PER_TV,
+    app_titles,
+    app_usage_unique_id,
+    parse_app_usage_unique_id,
+    top_packages,
 )
 from .coordinator import FamilyLinkDataUpdateCoordinator
 from .devices import async_prune_entities, device_supports, ensure_child_device, via_child
@@ -140,6 +149,24 @@ async def async_setup_entry(
                     prune.append(entity.unique_id)
 
     async_prune_entities(hass, "sensor", prune)
+
+    # App usage sensors: the apps used most, added as the data shows them. One
+    # that was added once stays (restored from the registry), also when it falls
+    # out of the ranking, so its statistics keep a sensor.
+    known_app_usage: set[str] = set()
+    remembered = {
+        parsed
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if entity.domain == "sensor" and (parsed := parse_app_usage_unique_id(entity.unique_id))
+    }
+
+    def _add_app_usage_sensors() -> None:
+        if new := new_app_usage_sensors(coordinator, known_app_usage, remembered):
+            async_add_entities(new)
+
+    entities.extend(new_app_usage_sensors(coordinator, known_app_usage, remembered))
+    entry.async_on_unload(coordinator.async_add_listener(_add_app_usage_sensors))
+
     _LOGGER.debug(f"Created {len(entities)} total sensor entities")
     async_add_entities(entities, update_before_add=True)
 
@@ -1682,3 +1709,130 @@ class FamilyLinkBatteryLevelSensor(ChildDataMixin, CoordinatorEntity, SensorEnti
 			attrs["last_update"] = location["timestamp_iso"]
 
 		return attrs
+
+
+def new_app_usage_sensors(
+	coordinator: FamilyLinkDataUpdateCoordinator,
+	known: set[str],
+	remembered: set[tuple[str, str | None, str]],
+) -> list[FamilyLinkAppUsageSensor]:
+	"""The app usage sensors that are not there yet: the top apps, and the ones added earlier.
+
+	`known` holds the unique ids already created and is updated. `remembered` is
+	(child id, device id or None, package) of sensors found in the registry.
+	"""
+	created: list[FamilyLinkAppUsageSensor] = []
+	for child_data in (coordinator.data or {}).get("children_data", []):
+		child_id = child_data["child_id"]
+		child_name = child_data["child_name"]
+		screen_time = child_data.get("screen_time") or {}
+		devices = {device["id"]: device for device in child_data.get("devices", []) if device.get("id")}
+
+		wanted: list[tuple[str | None, str]] = [
+			(None, package) for package in top_packages(screen_time.get("app_totals"), APP_USAGE_PER_CHILD)
+		]
+		for device_id, device in devices.items():
+			# A TV takes no time limits, so its apps are the ones nothing else limits
+			if device.get("capabilities") and not device_supports(device, *CAPS_TIME_LIMIT):
+				totals = (screen_time.get("device_app_totals") or {}).get(device_id)
+				wanted.extend((device_id, package) for package in top_packages(totals, APP_USAGE_PER_TV))
+		wanted.extend((device_id, package) for child, device_id, package in remembered if child == child_id)
+
+		for device_id, package in wanted:
+			unique_id = app_usage_unique_id(child_id, package, device_id)
+			if unique_id in known or (device_id and device_id not in devices):
+				continue
+			known.add(unique_id)
+			device = devices.get(device_id) if device_id else None
+			created.append(FamilyLinkAppUsageSensor(
+				coordinator, child_id, child_name, package,
+				device_id=device_id, device_name=device.get("name", "Unknown Device") if device else None,
+			))
+	return created
+
+
+class FamilyLinkAppUsageSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
+	"""Minutes one app was used today, by a child or on one device.
+
+	It counts up through the day and starts again at midnight. With the total
+	state class, Home Assistant keeps long-term statistics of it: a statistics
+	graph with the `change` type and a one-hour period shows the minutes added
+	per hour, in the hour Google received them (see app_usage.py).
+	"""
+
+	_attr_device_class = SensorDeviceClass.DURATION
+	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
+	_attr_state_class = SensorStateClass.TOTAL_INCREASING
+	_attr_icon = "mdi:chart-timeline-variant"
+
+	def __init__(
+		self,
+		coordinator: FamilyLinkDataUpdateCoordinator,
+		child_id: str,
+		child_name: str,
+		package: str,
+		device_id: str | None = None,
+		device_name: str | None = None,
+	) -> None:
+		"""Initialize the sensor."""
+		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
+		self._package = package
+		self._device_id = device_id
+		self._device_name = device_name
+		title = app_titles(self._get_child_data()).get(package, package)
+		self._attr_unique_id = app_usage_unique_id(child_id, package, device_id)
+		if device_id:
+			self._attr_name = f"{child_name} {title} on {device_name}"
+		else:
+			self._attr_name = f"{child_name} {title} usage today"
+
+	@property
+	def device_info(self) -> DeviceInfo:
+		"""The child, or the device the app is used on."""
+		if not self._device_id:
+			return super().device_info
+		return DeviceInfo(
+			identifiers={(DOMAIN, f"{self._child_id}_{self._device_id}")},
+			name=self._device_name,
+			manufacturer="Google",
+			model="Family Link Device",
+			**via_child(self.coordinator, self._child_id),
+		)
+
+	def _screen_time(self) -> dict[str, Any] | None:
+		child_data = self._get_child_data()
+		return (child_data or {}).get("screen_time") or None
+
+	@property
+	def native_value(self) -> float | None:
+		"""Minutes used today, 0 for an app not used yet today."""
+		screen_time = self._screen_time()
+		if screen_time is None:
+			return None
+		if self._device_id:
+			on_device = (screen_time.get("device_screen_time") or {}).get(self._device_id) or {}
+			seconds = (on_device.get("app_breakdown") or {}).get(self._package, 0)
+		else:
+			seconds = (screen_time.get("app_breakdown") or {}).get(self._package, 0)
+		return round(seconds / 60, 1)
+
+	@property
+	def available(self) -> bool:
+		"""Available while the child's screen time data is."""
+		return self.coordinator.last_update_success and self._screen_time() is not None
+
+	@property
+	def extra_state_attributes(self) -> dict[str, Any]:
+		"""The package, and for a child's sensor the minutes per device."""
+		attributes: dict[str, Any] = {"package": self._package}
+		screen_time = self._screen_time()
+		if screen_time and not self._device_id:
+			names = screen_time.get("device_names") or {}
+			per_device = {
+				names.get(item["device_id"], item["device_id"]): round(item["seconds"] / 60, 1)
+				for item in screen_time.get("app_device_usage") or []
+				if item.get("package") == self._package and item.get("seconds")
+			}
+			if per_device:
+				attributes["by_device"] = per_device
+		return attributes

@@ -60,7 +60,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_screen_time_formatted` | Child | The same value as `HH:MM:SS` text |
 | `sensor.<child>_installed_apps`, `_blocked_apps`, `_apps_with_time_limits`, `_apps_without_limits`, `_always_allowed_apps` | Child | App counts, with the matching app lists in attributes |
 | `sensor.<child>_top_app_1` to `_top_app_10` | Child | Today's most-used apps, usage in minutes |
-| `sensor.<child>_<app>_usage_today`, `sensor.<child>_<app>_on_<tv>` | Child, TV | Minutes one app was used today: the 8 most used apps of the child (all devices together, `by_device` in attributes), and the 5 most used on each TV. See [Usage by hour](#usage-by-hour) |
+| `sensor.<child>_<app>_usage_today`, `sensor.<child>_<app>_on_<tv>` | Child, TV | Minutes one app was used today: the 8 most used apps of the child (all devices together, `by_device` in attributes), and the 5 most used on each device that takes no time limits, such as a TV. See [Usage by hour](#usage-by-hour) |
 | `sensor.<child>_device_count` | Child | Number of supervised devices |
 | `sensor.<child>_child_info` | Child | Profile: name, email, birthday, age band |
 | `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location |
@@ -102,7 +102,7 @@ days_to_show: 7
 chart_type: bar
 ```
 
-Google reports a daily total per app and device, not when it was used, so the hour is the one in which Google received the usage: a phone uploads about every 5 minutes, a tablet every 15 to 20. History starts when the sensor is added; earlier days cannot be filled in. The apps are the ones used most over the days Google returned (up to 30); a sensor stays once it has been added. A TV takes no time limits, which is how it is told apart from a phone or tablet, and gets its own sensors for the apps used on it.
+Google reports a daily total per app and device, not when it was used, so the hour is the one in which Google received the usage: a phone uploads about every 5 minutes, a tablet every 15 to 20. History starts when the sensor is added; earlier days cannot be filled in. The apps are the ones used most over the days Google returned (up to 30); a sensor stays once it has been added. A device that takes no time limits, such as a Google TV, a streamer or a watch, is told apart from a phone or tablet that way, and gets its own sensors for the apps used on it.
 
 ### Strict mode
 

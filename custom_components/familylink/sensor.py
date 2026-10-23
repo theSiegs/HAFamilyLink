@@ -1732,7 +1732,7 @@ def new_app_usage_sensors(
 			(None, package) for package in top_packages(screen_time.get("app_totals"), APP_USAGE_PER_CHILD)
 		]
 		for device_id, device in devices.items():
-			# A TV takes no time limits, so its apps are the ones nothing else limits
+			# A TV (or a watch) takes no time limits, so its apps are the ones nothing else limits
 			if device.get("capabilities") and not device_supports(device, *CAPS_TIME_LIMIT):
 				totals = (screen_time.get("device_app_totals") or {}).get(device_id)
 				wanted.extend((device_id, package) for package in top_packages(totals, APP_USAGE_PER_TV))

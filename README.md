@@ -108,6 +108,12 @@ chart_type: bar
 - **A sensor stays** once it has been added, also when its app drops out of the ranking. To drop one, disable it: a deleted one comes back while its app ranks.
 - **The value never goes down within a day**, also across a restart, because Home Assistant would read a drop as a new count and count the minutes twice.
 
+### Block an app after some minutes a day
+
+Google TV ignores Family Link app time limits, but blocking an app works there. The blueprint [`blueprints/automation/familylink/block_app_after_daily_minutes.yaml`](blueprints/automation/familylink/block_app_after_daily_minutes.yaml) blocks an app once its app usage sensor passes a number of minutes today and unblocks it at a set time (06:00 by default). Import it from its GitHub address in Settings > Automations & scenes > Blueprints.
+
+Family Link blocks an app for the child, not for one device: while it is blocked, it is blocked on every device of that child. The unblock also lifts a block set by hand on the same app, and the block can come 5 to 20 minutes after the limit, as the minutes come from the devices' uploads.
+
 ### Strict mode
 
 **Why it exists.** There is a gap on Google's side that many children know how to use: from the Family Link app or the Google interface, a supervised child can give themselves a time bonus, lift the lock of a device that has no time left, or switch bedtime and the daily limit off. Parents were closing it with a set of automations that watched the entities and reverted the change. Strict mode does this natively.

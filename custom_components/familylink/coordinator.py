@@ -269,11 +269,11 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			except Exception as err:
 				_LOGGER.warning(f"Failed to fetch apps and usage data for {child_name}: {err}")
 				# Try to recover apps_usage_data from last known data cache.
-				# Note: deviceInfo is intentionally left out here — the cached
-				# child stores already-parsed `devices`, not raw deviceInfo, so
-				# we restore the device list directly below (cached_devices)
-				# rather than re-deriving it from an empty deviceInfo (which
-				# would otherwise wipe every device on a transient 503).
+				# The cached child stores already-parsed `devices`, not raw
+				# deviceInfo: the device list is restored directly below
+				# (cached_devices) so a transient 503 does not wipe every device,
+				# and the screen time computation gets the device names
+				# (cachedDeviceNames) and the time Google last got usage.
 				if self._last_known_data:
 					for cached_child in self._last_known_data.get("children_data", []):
 						if cached_child.get("child_id") == child_id:
@@ -281,6 +281,10 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 								"apps": cached_child.get("apps", []),
 								"deviceInfo": [],
 								"appUsageSessions": cached_child.get("app_usage_sessions", []),
+								"lastActivityRefreshTimestampMillis": (cached_child.get("screen_time") or {}).get("data_refreshed_ms"),
+								"cachedDeviceNames": {
+									device["id"]: device.get("name") for device in cached_child.get("devices") or [] if device.get("id")
+								},
 							}
 							cached_devices = cached_child.get("devices")
 							_LOGGER.debug(f"Using cached apps/usage data for {child_name}")

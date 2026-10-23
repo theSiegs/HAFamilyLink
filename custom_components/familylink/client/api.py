@@ -533,8 +533,9 @@ class FamilyLinkClient:
 			daily_totals: dict[str, float] = {}
 			unattributed_sessions = 0
 
-			# Extract devices map: deviceId -> friendlyName/model
-			device_names: dict[str, str] = {}
+			# Extract devices map: deviceId -> friendlyName/model. On a failed
+			# fetch the coordinator passes the names it had (cachedDeviceNames).
+			device_names: dict[str, str] = dict(data.get("cachedDeviceNames") or {})
 			for dev in data.get("deviceInfo", []):
 				dev_id = dev.get("deviceId")
 				disp = dev.get("displayInfo", {})

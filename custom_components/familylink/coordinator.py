@@ -52,7 +52,6 @@ from .strict_mode import (
 	snapshot_policies,
 	snapshot_values,
 )
-from .usage_tracker import RecentUsageTracker
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -107,7 +106,6 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		# and taken from the answer of a change made from Home Assistant (store_websites).
 		self._websites: dict[str, tuple[float, dict[str, Any] | None]] = {}  # child_id -> (read at, lists)
 		self._websites_warned: set[str] = set()  # children whose last site list read failed (warned once)
-		self._recent_usage = RecentUsageTracker()
 
 		# Strict mode: Home Assistant reverts restriction changes made from the
 		# Family Link side (see strict_mode.py). The default and the rule set
@@ -569,7 +567,6 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 							break
 
 			websites = await self._async_child_websites(child_id, child_name)
-			recent_apps = self._recent_usage.update(child_id, screen_time, dt_util.utcnow())
 
 			# Store data for this child
 			child_data = {
@@ -580,7 +577,6 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"time_limit_fresh": time_limit_fresh,
 				"applied_limits_fresh": applied_limits_fresh,
 				"screen_time": screen_time,
-				"recent_apps": recent_apps,
 				"location": location,
 				"contact_restriction": contact_restriction,
 				"websites": websites,
@@ -610,7 +606,6 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			for device in devices:
 				self._devices[f"{child_id}_{device['id']}"] = device
 
-		self._recent_usage.retain({child["child_id"] for child in children_data})
 		_LOGGER.debug("Successfully updated all Family Link data")
 		return {
 			"family_members": family_members,

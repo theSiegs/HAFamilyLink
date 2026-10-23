@@ -106,3 +106,22 @@ def test_sensor_without_earlier_days_adds_nothing():
     assert "yesterday_minutes" not in attrs
     assert "last_7_days_minutes" not in attrs
     assert "data_updated" not in attrs
+
+
+async def test_on_a_failed_fetch_the_cached_names_and_refresh_time_are_kept(hass):
+    client = FamilyLinkClient(hass, {})
+    # What the coordinator passes from its cache when the fetch fails: no deviceInfo
+    data = {
+        "deviceInfo": [],
+        "apps": [],
+        "appUsageSessions": [_session(10, "com.video", 120)],
+        "lastActivityRefreshTimestampMillis": "1791633600000",
+        "cachedDeviceNames": {"dev-phone": "Pixel 9 Pro"},
+    }
+
+    result = await client.async_get_daily_screen_time("child-1", TARGET_DATE, data=data)
+
+    assert result["device_names"] == {"dev-phone": "Pixel 9 Pro"}
+    assert result["device_screen_time"]["dev-phone"]["name"] == "Pixel 9 Pro"
+    assert result["app_device_usage"][0]["device"] == "Pixel 9 Pro"
+    assert result["data_refreshed_ms"] == "1791633600000"

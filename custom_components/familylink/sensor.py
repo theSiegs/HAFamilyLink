@@ -669,8 +669,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 		# Apps whose usage grew in the last 30 minutes (see usage_tracker.py)
 		recent = child_data.get("recent_apps") or []
 		if recent:
-			titles = {app.get("packageName"): app.get("title") for app in child_data.get("apps", [])}
-			attributes["recent_apps"] = [{"name": titles.get(app["package"]) or app["package"], **app} for app in recent]
+			details = _app_details(child_data)
+			attributes["recent_apps"] = [{"name": details.get(app["package"], (app["package"], None))[0], **app} for app in recent]
 
 		# Add per-device screen time breakdown
 		device_screen_time = screen_time.get("device_screen_time", {})

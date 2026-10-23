@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.
+- **Yesterday, the week before today and when Google last got usage** - The child's daily screen time sensor gains `yesterday_minutes`, `last_7_days_minutes` (the seven days before today) and `data_updated`, read from the answer that already carried them. Google leaves out a day without usage, which reads as 0.
+- **Per-day history** - `history` on the daily screen time sensor: the earlier days Google returned (up to 30), in minutes. Templates and automations can read it; it is not stored by the Recorder.
+- **Apps whose usage grew recently** - `recent_apps` on the daily screen time sensor lists the apps whose daily total grew in the last 30 minutes, with how much (`grew_minutes`), the total today, the device and `reported_at`, the time Google received the usage. Google has no session times, so this is what was measured between refreshes, not what the child was doing; a tablet uploads every 15 to 20 minutes. Not stored by the Recorder.
+
+### Fixed
+- **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
+
+---
+
 ## [2.3.0] - 2026-10-21
 
 Seven pull requests, four of them contributed: the app services now need a child, apps can be paused instead of blocked, the child's Chrome site lists are read and edited from Home Assistant, and the "unlimited apps during downtime" setting has a switch and a service.
@@ -44,12 +57,6 @@ Four fixes: an empty members answer keeps the children, a child's daily limit sk
 - **The weekday daily-limit number keeps the new strict mode reference when the write was taken in part** - It put the previous reference back as soon as one device refused today's override, although the weekly quota and the other devices had taken the new value; strict mode then fought the devices that had. It now follows the same rule as `set_daily_limit`: the reference goes back only when nothing was taken.
 - **An empty family members answer no longer blanks the children** - The members read can succeed and still list no supervised child (no `members` field, an empty list, members without their supervision info). The refresh carried on with zero children: every child's data was replaced with nothing, so switches fell back to their defaults (bedtime reported off, a device under bedtime or its daily limit reported usable) and the sensors went unknown or unavailable, and the cache was overwritten with that empty result, leaving a later failed read nothing to fall back on. When the last good refresh had children, such an answer now fails the refresh like a failed read (#184) and the last known data is kept. At startup, with nothing cached, an account without supervised children sets up as before.
 - **A daily limit set for a child no longer fails because of the child's Google TV** (#173) - `familylink.set_daily_limit` with only a `child_id`, and today's weekday daily-limit number, post the quota as a per-device override on every device of the child, the TV included. A Google TV / Chromecast takes no time limits, so Google never applied the override there and the readback reported it as not applied: the service raised although the phone and tablet had taken the new quota, and the number put strict mode's previous reference back. Both now skip devices that advertise no time-limit capability (the same check as the entities since 2.2.6; a device without a capability list is still included). A `device_id` given explicitly is still targeted as before.
-
-### Fixed
-- **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
-
-### Added
-- **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.
 
 ---
 

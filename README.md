@@ -129,6 +129,11 @@ actions:
     data:
       message: "{{ trigger.to_state.attributes.app }} on the TV during bedtime ({{ trigger.to_state.attributes.grew_minutes }} min)"
 ```
+### Block an app after some minutes a day
+
+Google TV ignores Family Link app time limits, but blocking an app works there. The blueprint [`blueprints/automation/familylink/block_app_after_daily_minutes.yaml`](blueprints/automation/familylink/block_app_after_daily_minutes.yaml) blocks an app once its app usage sensor passes a number of minutes today and unblocks it at a set time (06:00 by default). Import it from its GitHub address in Settings > Automations & scenes > Blueprints.
+
+Family Link blocks an app for the child, not for one device: while it is blocked, it is blocked on every device of that child. The unblock also lifts a block set by hand on the same app, and the block can come 5 to 20 minutes after the limit, as the minutes come from the devices' uploads.
 
 ### Strict mode
 

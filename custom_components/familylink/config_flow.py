@@ -29,6 +29,12 @@ from .const import (
 	CONF_STRICT_MODE,
 	CONF_STRICT_MODE_RULES,
 	CONF_LOCK_KEEPS_ALLOWED_APPS,
+	CONF_APP_USAGE_EXCLUDED,
+	CONF_APP_USAGE_PER_CHILD,
+	CONF_APP_USAGE_PER_DEVICE,
+	CONF_APP_USAGE_PINNED,
+	DEFAULT_APP_USAGE_PER_CHILD,
+	DEFAULT_APP_USAGE_PER_DEVICE,
 	DEFAULT_STRICT_MODE,
 	DEFAULT_STRICT_MODE_RULES,
 	DEFAULT_LOCK_KEEPS_ALLOWED_APPS,
@@ -511,5 +517,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 						current_data.get(CONF_LOCK_KEEPS_ALLOWED_APPS, DEFAULT_LOCK_KEEPS_ALLOWED_APPS)
 					),
 				): bool,
+				vol.Optional(
+					CONF_APP_USAGE_PER_CHILD,
+					default=current_options.get(CONF_APP_USAGE_PER_CHILD, DEFAULT_APP_USAGE_PER_CHILD),
+				): vol.All(vol.Coerce(int), vol.Range(min=0, max=20)),
+				vol.Optional(
+					CONF_APP_USAGE_PER_DEVICE,
+					default=current_options.get(CONF_APP_USAGE_PER_DEVICE, DEFAULT_APP_USAGE_PER_DEVICE),
+				): vol.All(vol.Coerce(int), vol.Range(min=0, max=10)),
+				vol.Optional(
+					CONF_APP_USAGE_PINNED,
+					default=list(current_options.get(CONF_APP_USAGE_PINNED, [])),
+				): TextSelector(TextSelectorConfig(multiple=True)),
+				vol.Optional(
+					CONF_APP_USAGE_EXCLUDED,
+					default=list(current_options.get(CONF_APP_USAGE_EXCLUDED, [])),
+				): TextSelector(TextSelectorConfig(multiple=True)),
 			}),
 		)

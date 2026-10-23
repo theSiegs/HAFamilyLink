@@ -534,6 +534,10 @@ class FamilyLinkClient:
 			# The same days per app, and per app on each device: what ranks the apps
 			app_totals: dict[str, float] = {}
 			device_app_totals: dict[str, dict[str, float]] = {}
+			# Per app over the seven days before target_date, and per app on each device
+			app_week_totals: dict[str, float] = {}
+			device_app_week_totals: dict[str, dict[str, float]] = {}
+			week_days = {(target_date.date() - timedelta(days=n)).isoformat() for n in range(1, 8)}
 			unattributed_sessions = 0
 
 			# Extract devices map: deviceId -> friendlyName/model. On a failed
@@ -575,12 +579,17 @@ class FamilyLinkClient:
 				if day_key:
 					daily_totals[day_key] = daily_totals.get(day_key, 0) + usage_seconds
 
-				ranked_package = session.get("appId", {}).get("androidAppPackageName")
+				ranked_package = (session.get("appId") or {}).get("androidAppPackageName")
 				if ranked_package:
-					app_totals[ranked_package] = app_totals.get(ranked_package, 0) + usage_seconds
-					if ranked_device := session.get("deviceMudId"):
-						on_device = device_app_totals.setdefault(ranked_device, {})
-						on_device[ranked_package] = on_device.get(ranked_package, 0) + usage_seconds
+					ranked_device = session.get("deviceMudId")
+					sums = [(app_totals, device_app_totals)]
+					if day_key in week_days:
+						sums.append((app_week_totals, device_app_week_totals))
+					for per_app, per_device in sums:
+						per_app[ranked_package] = per_app.get(ranked_package, 0) + usage_seconds
+						if ranked_device:
+							on_device = per_device.setdefault(ranked_device, {})
+							on_device[ranked_package] = on_device.get(ranked_package, 0) + usage_seconds
 
 				# Check if this session is for the target date
 				if (session_date.get("year") == target_date.year and
@@ -687,6 +696,8 @@ class FamilyLinkClient:
 				"daily_totals": dict(sorted(daily_totals.items())),
 				"app_totals": app_totals,
 				"device_app_totals": device_app_totals,
+				"app_week_totals": app_week_totals,
+				"device_app_week_totals": device_app_week_totals,
 				# When Google last received usage from the child's devices (epoch ms)
 				"data_refreshed_ms": data.get("lastActivityRefreshTimestampMillis"),
 			}

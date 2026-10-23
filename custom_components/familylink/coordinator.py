@@ -52,6 +52,7 @@ from .strict_mode import (
 	snapshot_policies,
 	snapshot_values,
 )
+from .usage_tracker import UsageGrowthTracker
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -106,6 +107,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		# and taken from the answer of a change made from Home Assistant (store_websites).
 		self._websites: dict[str, tuple[float, dict[str, Any] | None]] = {}  # child_id -> (read at, lists)
 		self._websites_warned: set[str] = set()  # children whose last site list read failed (warned once)
+		# Apps whose usage grew since the last refresh, for the app usage event (event.py)
+		self._usage_growth = UsageGrowthTracker()
+		self._usage_refresh = 0  # tells one refresh's growth from the next one's
 
 		# Strict mode: Home Assistant reverts restriction changes made from the
 		# Family Link side (see strict_mode.py). The default and the rule set
@@ -571,6 +575,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 							break
 
 			websites = await self._async_child_websites(child_id, child_name)
+			usage_grew = self._usage_growth.update(child_id, screen_time, dt_util.utcnow())
+			self._usage_refresh += 1
 
 			# Store data for this child
 			child_data = {
@@ -581,6 +587,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"time_limit_fresh": time_limit_fresh,
 				"applied_limits_fresh": applied_limits_fresh,
 				"screen_time": screen_time,
+				"usage_grew": usage_grew,
+				"usage_refresh": self._usage_refresh,
 				"location": location,
 				"contact_restriction": contact_restriction,
 				"websites": websites,
@@ -610,6 +618,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			for device in devices:
 				self._devices[f"{child_id}_{device['id']}"] = device
 
+		self._usage_growth.retain({child["child_id"] for child in children_data})
 		_LOGGER.debug("Successfully updated all Family Link data")
 		return {
 			"family_members": family_members,

@@ -55,7 +55,7 @@ from .schedules import parse_time_string
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.DEVICE_TRACKER, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH, Platform.SELECT, Platform.TIME]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.DEVICE_TRACKER, Platform.EVENT, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH, Platform.SELECT, Platform.TIME]
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

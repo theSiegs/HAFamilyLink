@@ -531,6 +531,9 @@ class FamilyLinkClient:
 			device_app_seconds: dict[tuple[str, str], float] = {}
 			# Every day Google returns (up to the last 30 days), not just target_date
 			daily_totals: dict[str, float] = {}
+			# The same days per app, and per app on each device: what ranks the apps
+			app_totals: dict[str, float] = {}
+			device_app_totals: dict[str, dict[str, float]] = {}
 			unattributed_sessions = 0
 
 			# Extract devices map: deviceId -> friendlyName/model
@@ -570,6 +573,13 @@ class FamilyLinkClient:
 					day_key = None
 				if day_key:
 					daily_totals[day_key] = daily_totals.get(day_key, 0) + usage_seconds
+
+				ranked_package = session.get("appId", {}).get("androidAppPackageName")
+				if ranked_package:
+					app_totals[ranked_package] = app_totals.get(ranked_package, 0) + usage_seconds
+					if ranked_device := session.get("deviceMudId"):
+						on_device = device_app_totals.setdefault(ranked_device, {})
+						on_device[ranked_package] = on_device.get(ranked_package, 0) + usage_seconds
 
 				# Check if this session is for the target date
 				if (session_date.get("year") == target_date.year and
@@ -674,6 +684,8 @@ class FamilyLinkClient:
 				"app_device_usage": app_device_usage,
 				"date": target_date.date(),
 				"daily_totals": dict(sorted(daily_totals.items())),
+				"app_totals": app_totals,
+				"device_app_totals": device_app_totals,
 				# When Google last received usage from the child's devices (epoch ms)
 				"data_refreshed_ms": data.get("lastActivityRefreshTimestampMillis"),
 			}

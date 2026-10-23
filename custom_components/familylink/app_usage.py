@@ -11,30 +11,77 @@ the apps used most over the days Google returned (up to 30), and each device
 that takes no time limits (a Google TV or streamer, a watch) the apps used most
 on it. That is how those are told apart from a phone or tablet; their apps are
 tracked on their own because they are not the apps of the phone and nothing
-else limits them.
+else limits them. Launchers and system screens are left out of the ranking;
+the options set the counts and the apps always or never given a sensor.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 import re
 from typing import Any
 
-from .const import DOMAIN
+from .const import (
+	CONF_APP_USAGE_EXCLUDED,
+	CONF_APP_USAGE_PER_CHILD,
+	CONF_APP_USAGE_PER_DEVICE,
+	CONF_APP_USAGE_PINNED,
+	DEFAULT_APP_USAGE_PER_CHILD,
+	DEFAULT_APP_USAGE_PER_DEVICE,
+	DOMAIN,
+)
 
-APP_USAGE_PER_CHILD = 8
-APP_USAGE_PER_TV = 5  # per device that takes no time limits
 # An app with less than this over the returned days is not worth a sensor
 MIN_RANKED_SECONDS = 600
+# Screens the child passes through rather than uses: never ranked
+_SYSTEM_PACKAGES = frozenset({
+	"com.android.systemui",
+	"com.android.permissioncontroller",
+	"com.google.android.permissioncontroller",
+})
 
 
-def top_packages(totals: dict[str, float] | None, count: int) -> list[str]:
-	"""The packages with the most usage, most first, leaving out the barely used ones."""
+@dataclass(frozen=True)
+class AppUsageSettings:
+	"""The options of the app usage sensors."""
+
+	per_child: int = DEFAULT_APP_USAGE_PER_CHILD
+	per_device: int = DEFAULT_APP_USAGE_PER_DEVICE
+	pinned: frozenset[str] = field(default_factory=frozenset)
+	excluded: frozenset[str] = field(default_factory=frozenset)
+
+	@classmethod
+	def from_options(cls, options: Mapping[str, Any]) -> AppUsageSettings:
+		"""Read the options; a missing one keeps the default."""
+		def packages(key: str) -> frozenset[str]:
+			return frozenset(p.strip() for p in options.get(key) or [] if p and p.strip())
+
+		return cls(
+			per_child=int(options.get(CONF_APP_USAGE_PER_CHILD, DEFAULT_APP_USAGE_PER_CHILD)),
+			per_device=int(options.get(CONF_APP_USAGE_PER_DEVICE, DEFAULT_APP_USAGE_PER_DEVICE)),
+			pinned=packages(CONF_APP_USAGE_PINNED),
+			excluded=packages(CONF_APP_USAGE_EXCLUDED),
+		)
+
+
+def is_ranked(package: str, excluded: frozenset[str] = frozenset()) -> bool:
+	"""Whether an app can be ranked: not excluded, not a launcher or a system screen."""
+	return package not in excluded and package not in _SYSTEM_PACKAGES and "launcher" not in package.lower()
+
+
+def top_packages(totals: dict[str, float] | None, count: int, excluded: frozenset[str] = frozenset()) -> list[str]:
+	"""The packages with the most usage, most first, leaving out the barely used and unranked ones."""
 	ranked = sorted(
-		((package, seconds) for package, seconds in (totals or {}).items() if seconds >= MIN_RANKED_SECONDS),
+		(
+			(package, seconds)
+			for package, seconds in (totals or {}).items()
+			if seconds >= MIN_RANKED_SECONDS and is_ranked(package, excluded)
+		),
 		key=lambda item: item[1],
 		reverse=True,
 	)
-	return [package for package, _ in ranked[:count]]
+	return [package for package, _ in ranked[:max(count, 0)]]
 
 
 def app_usage_unique_id(child_id: str, package: str, device_id: str | None = None) -> str:

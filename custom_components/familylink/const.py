@@ -21,6 +21,12 @@ CONF_STRICT_MODE_RULES: Final = "strict_mode_rules"
 # A device lock from Home Assistant keeps the "always allowed" apps reachable
 # from the lock screen (Google override code 7) instead of a plain lock (code 1)
 CONF_LOCK_KEEPS_ALLOWED_APPS: Final = "lock_keeps_allowed_apps"
+# App usage sensors (app_usage.py): how many per child and per device without
+# time limits, and the packages always or never given one
+CONF_APP_USAGE_PER_CHILD: Final = "app_usage_per_child"
+CONF_APP_USAGE_PER_DEVICE: Final = "app_usage_per_device"
+CONF_APP_USAGE_PINNED: Final = "app_usage_pinned"
+CONF_APP_USAGE_EXCLUDED: Final = "app_usage_excluded"
 
 AUTH_SOURCE_MANAGED: Final = "managed"
 AUTH_SOURCE_MANUAL: Final = "manual"
@@ -124,6 +130,8 @@ SERVICE_RING_DEVICE: Final = "ring_device"
 # Strict mode (Home Assistant reverts changes made from the Family Link side)
 DEFAULT_STRICT_MODE: Final = False
 DEFAULT_LOCK_KEEPS_ALLOWED_APPS: Final = True
+DEFAULT_APP_USAGE_PER_CHILD: Final = 8
+DEFAULT_APP_USAGE_PER_DEVICE: Final = 5
 STRICT_MODE_RULES: Final = ("bonus", "lock", "bedtime", "daily_limit", "school_time", "values")
 # Policies are not forced on: the state in force when strict mode starts is
 # the reference, so school_time is safe by default even when kept off.

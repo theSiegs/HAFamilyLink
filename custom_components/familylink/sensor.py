@@ -599,8 +599,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 	_attr_state_class = SensorStateClass.TOTAL
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-outline"
-	# Up to 30 days, rewritten with every state change: readable in templates, not stored
-	_unrecorded_attributes = frozenset({"history"})
+	# Read in templates, not stored: history is up to 30 days, recent_apps is what the child used just now
+	_unrecorded_attributes = frozenset({"history", "recent_apps"})
 
 	def __init__(
 		self,
@@ -666,6 +666,12 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 		}
 
 		attributes.update(_usage_totals_attributes(screen_time))
+
+		# Apps whose usage grew in the last 30 minutes (see usage_tracker.py)
+		recent = child_data.get("recent_apps") or []
+		if recent:
+			titles = {app.get("packageName"): app.get("title") for app in child_data.get("apps", [])}
+			attributes["recent_apps"] = [{"name": titles.get(app["package"]) or app["package"], **app} for app in recent]
 
 		# Add per-device screen time breakdown
 		device_screen_time = screen_time.get("device_screen_time", {})

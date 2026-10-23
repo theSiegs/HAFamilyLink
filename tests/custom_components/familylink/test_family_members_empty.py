@@ -16,6 +16,7 @@ import pytest
 
 from custom_components.familylink.coordinator import FamilyLinkDataUpdateCoordinator
 from custom_components.familylink.exceptions import FamilyLinkException
+from custom_components.familylink.usage_tracker import RecentUsageTracker
 
 LAST_KNOWN = {"children_data": [{"child_id": "123", "child_name": "Child"}]}
 
@@ -38,6 +39,7 @@ def _coordinator(members: dict, last_known: dict | None) -> FamilyLinkDataUpdate
     coordinator._auth_notification_sent = False
     coordinator._is_retrying_auth = False
     coordinator._async_enforce_strict_mode = AsyncMock()
+    coordinator._recent_usage = RecentUsageTracker()
     return coordinator
 
 

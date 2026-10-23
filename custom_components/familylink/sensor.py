@@ -581,6 +581,7 @@ def _usage_totals_attributes(screen_time: dict[str, Any]) -> dict[str, Any]:
 		days = [str(today - timedelta(days=n)) for n in range(1, 8)]
 		attributes["yesterday_minutes"] = round(daily_totals.get(days[0], 0) / 60, 1)
 		attributes["last_7_days_minutes"] = round(sum(daily_totals.get(d, 0) for d in days) / 60, 1)
+		attributes["history"] = {d: round(s / 60, 1) for d, s in daily_totals.items() if d != str(today)}
 
 	refreshed_ms = screen_time.get("data_refreshed_ms")
 	if refreshed_ms:
@@ -598,6 +599,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 	_attr_state_class = SensorStateClass.TOTAL
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-outline"
+	# Up to 30 days, rewritten with every state change: readable in templates, not stored
+	_unrecorded_attributes = frozenset({"history"})
 
 	def __init__(
 		self,

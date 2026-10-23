@@ -7,10 +7,11 @@ ones Google received the usage in (a phone uploads about every 5 minutes, a
 tablet every 15 to 20).
 
 Every installed app would be 150 or more sensors per child, so each child gets
-the apps used most over the days Google returned (up to 30), and each TV the
-apps used most on it. A TV takes no time limits, which is how it is told apart
-from a phone or tablet; its apps are tracked on their own because they are not
-the apps of the phone and nothing else limits them.
+the apps used most over the days Google returned (up to 30), and each device
+that takes no time limits (a Google TV or streamer, a watch) the apps used most
+on it. That is how those are told apart from a phone or tablet; their apps are
+tracked on their own because they are not the apps of the phone and nothing
+else limits them.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from typing import Any
 from .const import DOMAIN
 
 APP_USAGE_PER_CHILD = 8
-APP_USAGE_PER_TV = 5
+APP_USAGE_PER_TV = 5  # per device that takes no time limits
 # An app with less than this over the returned days is not worth a sensor
 MIN_RANKED_SECONDS = 600
 

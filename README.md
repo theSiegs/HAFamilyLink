@@ -60,6 +60,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_screen_time_formatted` | Child | The same value as `HH:MM:SS` text |
 | `sensor.<child>_installed_apps`, `_blocked_apps`, `_apps_with_time_limits`, `_apps_without_limits`, `_always_allowed_apps` | Child | App counts, with the matching app lists in attributes |
 | `sensor.<child>_top_app_1` to `_top_app_10` | Child | Today's most-used apps, usage in minutes |
+| `event.<child>_app_usage` | Child | Fires `usage_grew` for each app and device whose usage grew since the last refresh: `package`, `app`, `device`, `grew_minutes`, `today_minutes`, `reported_at`. See [App usage event](#app-usage-event) |
 | `sensor.<child>_device_count` | Child | Number of supervised devices |
 | `sensor.<child>_child_info` | Child | Profile: name, email, birthday, age band |
 | `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location |
@@ -84,6 +85,26 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `button.<device>_ring` | Device | Ring the device to locate it |
 
 GPS entities are only created when location tracking is enabled in the integration options (off by default; each location poll may notify the child's device).
+
+### App usage event
+
+Google has no session times, only a daily total per app and device that each device uploads in batches (about every 5 minutes for a phone in use, 15 to 20 for a tablet). The event reports what was measured: an app whose total grew between two refreshes, by how much (`grew_minutes`), its total today and when Google received it (`reported_at`; the use itself happened before). The first refresh of a day, or after a restart, only sets the baseline.
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.alex_family_link_app_usage
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.device == 'Lounge TV' }}"
+  - condition: state
+    entity_id: binary_sensor.alex_tablet_bedtime_active
+    state: "on"
+actions:
+  - action: notify.notify
+    data:
+      message: "{{ trigger.to_state.attributes.app }} on the TV during bedtime ({{ trigger.to_state.attributes.grew_minutes }} min)"
+```
 
 ### Strict mode
 

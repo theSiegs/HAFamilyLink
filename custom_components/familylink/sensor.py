@@ -138,10 +138,74 @@ async def async_setup_entry(
                     entities.append(entity)
                 else:
                     prune.append(entity.unique_id)
+            # Every device checks in with Google, whatever it supports
+            entities.append(FamilyLinkDeviceLastActivitySensor(coordinator, child_id, child_name, device_id, device_name))
 
     async_prune_entities(hass, "sensor", prune)
     _LOGGER.debug(f"Created {len(entities)} total sensor entities")
     async_add_entities(entities, update_before_add=True)
+
+
+class FamilyLinkDeviceLastActivitySensor(CoordinatorEntity, SensorEntity):
+    """When Google last heard from a device (its lastActivityTimeMillis).
+
+    Google sets it when the device checks in, which is not the same as the child
+    using it: seen live, it matched the minute school time started on a phone.
+    It tells a device that is on and connected from one that has gone quiet.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:clock-check-outline"
+
+    def __init__(
+        self,
+        coordinator: FamilyLinkDataUpdateCoordinator,
+        child_id: str,
+        child_name: str,
+        device_id: str,
+        device_name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._child_id = child_id
+        self._device_id = device_id
+        self._device_name = device_name
+        self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_last_activity"
+        self._attr_name = f"{device_name} Last Activity"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link this sensor to the device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._child_id}_{self._device_id}")},
+            name=self._device_name,
+            manufacturer="Google",
+            model="Family Link Device",
+            **via_child(self.coordinator, self._child_id),
+        )
+
+    def _device(self) -> dict[str, Any] | None:
+        for child_data in (self.coordinator.data or {}).get("children_data", []):
+            if child_data.get("child_id") == self._child_id:
+                for device in child_data.get("devices", []):
+                    if device.get("id") == self._device_id:
+                        return device
+        return None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """The last check-in, None when Google gave none."""
+        millis = (self._device() or {}).get("last_activity")
+        try:
+            return dt_util.utc_from_timestamp(int(millis) / 1000)
+        except (TypeError, ValueError, OverflowError, OSError):
+            return None
+
+    @property
+    def available(self) -> bool:
+        """Available while the device is in the data."""
+        return self.coordinator.last_update_success and self._device() is not None
 
 
 class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):

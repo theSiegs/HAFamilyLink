@@ -79,6 +79,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<device>_daily_limit` | Device | Configured daily quota in minutes |
 | `sensor.<device>_active_bonus` | Device | Active bonus minutes (0 when none) |
 | `sensor.<device>_daily_screen_time` | Device | Today's screen time on this device in minutes, per-app breakdown in attributes; unknown while the data is missing |
+| `sensor.<device>_last_activity` | Device (diagnostic) | When Google last heard from the device: a check-in, not proof the child used it |
 | `binary_sensor.<device>_bedtime_active`, `_school_time_active` | Device | Currently inside the bedtime / school time window |
 | `binary_sensor.<device>_daily_limit_reached` | Device | Daily limit used up (ignores bonus time) |
 | `switch.<device>` | Device | Device usability: ON means usable, OFF means manually locked, bedtime active, or daily limit reached. An active bonus overrides bedtime, school time and daily-limit restrictions, but not a manual lock. The `restriction_reason` attribute tells you why, and `lock_override_code` gives Google's raw override on the device (1 lock, 7 lock with the allowed apps reachable, 4 unlock, empty when none). A lock from Home Assistant keeps the apps marked "always allowed" in Family Link reachable through an "Available apps" button on the lock screen; the *Device lock keeps the always allowed apps reachable* option, on by default, switches that off for a plain lock |

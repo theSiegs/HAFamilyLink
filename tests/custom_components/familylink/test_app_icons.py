@@ -81,3 +81,28 @@ def test_top_app_sensor_shows_the_app_icon():
     assert first.entity_picture == GAME_ICON
     assert second.extra_state_attributes["icon_url"] is None
     assert second.entity_picture is None
+
+
+def test_an_app_usage_sensor_shows_the_apps_icon():
+    from custom_components.familylink.sensor import FamilyLinkAppUsageSensor
+
+    coordinator = SimpleNamespace(
+        data={
+            "children_data": [
+                {
+                    "child_id": "1001",
+                    "child_name": "Alex",
+                    "apps": [{"packageName": "com.video", "title": "Video", "iconUrl": "https://example.com/video.png"}],
+                    "screen_time": {"date": None, "app_breakdown": {"com.video": 60}},
+                    "devices": [],
+                }
+            ]
+        },
+        child_device_ids={},
+        last_update_success=True,
+    )
+
+    sensor = FamilyLinkAppUsageSensor(coordinator, "1001", "Alex", "com.video")
+
+    assert sensor.entity_picture == "https://example.com/video.png"
+    assert sensor.name == "Video usage today"

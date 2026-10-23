@@ -31,7 +31,6 @@ from .const import (
 )
 from .app_usage import (
     AppUsageSettings,
-    app_titles,
     app_usage_unique_id,
     parse_app_usage_unique_id,
     top_packages,
@@ -1871,7 +1870,7 @@ class FamilyLinkAppUsageSensor(ChildDataMixin, CoordinatorEntity, RestoreEntity,
 		self._device_name = device_name
 		self._day: Any = None
 		self._minutes: float | None = None
-		title = app_titles(self._get_child_data()).get(package, package)
+		title, self._attr_entity_picture = _app_details(self._get_child_data()).get(package, (package, None))
 		self._attr_unique_id = app_usage_unique_id(child_id, package, device_id)
 		# The device name comes first: the child's hub for a child's sensor; for
 		# one device it is the device, which several children can share

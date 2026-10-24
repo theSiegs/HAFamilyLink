@@ -4187,3 +4187,34 @@ class FamilyLinkClient:
 			f"removed {len(body['removedWebsiteExceptions'])}, {len(result['covered'])} already covered"
 		)
 		return result
+
+	# Chrome filter mode, as the Family Link web app sets it (captured 2026-10):
+	#   POST people/settingResources:performAction with
+	#        [null, [[[1, ["124", null, [childId]], mode]], [[1, 3, 4, 5, 6], 1]]]
+	# "124" is the Chrome filter setting resource; the child id is in the body,
+	# not the path. The trailing [[1, 3, 4, 5, 6], 1] is sent as the web app
+	# sends it. The mode reads back as filterLevel in websites:listRestrictions.
+	WEB_FILTER_RESOURCE = "124"
+	WEB_FILTER_ALL_SITES = "1"
+	WEB_FILTER_APPROVED_ONLY = "2"
+	WEB_FILTER_BLOCK_EXPLICIT = "3"
+
+	async def async_set_web_filter(self, account_id: str, mode: str) -> None:
+		"""Set the child's Chrome filter mode, one of the WEB_FILTER_* values."""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+		self._validate_id(account_id, "account_id")
+		session = await self._get_session()
+		body = [None, [[[1, [self.WEB_FILTER_RESOURCE, None, [account_id]], mode]], [[1, 3, 4, 5, 6], 1]]]
+		async with session.post(
+			f"{self.BASE_URL}/people/settingResources:performAction",
+			headers={"Content-Type": "application/json+protobuf", "Cookie": self._get_cookie_header()},
+			data=json.dumps(body),
+		) as response:
+			if response.status == 401:
+				raise SessionExpiredError("Session expired, please re-authenticate")
+			if response.status != 200:
+				text = await response.text()
+				_LOGGER.error(f"Setting the Chrome filter failed {response.status}: {text[:300]}")
+				raise NetworkError(f"Setting the Chrome filter failed: HTTP {response.status}")
+		_LOGGER.info(f"Chrome filter set to mode {mode} for {account_id}")

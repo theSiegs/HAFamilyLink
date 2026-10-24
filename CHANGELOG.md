@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **App usage event** - `event.<child>_app_usage` fires `usage_grew` for each app and device whose usage grew since the last refresh, with the app, the device, how much it grew, its total today and when Google received it. Google has no session times, so this is what was measured between refreshes, 5 to 20 minutes after the use.
 - **Device last activity** - `sensor.<device>_last_activity` (diagnostic): when Google last heard from the device. A check-in, not proof the child used it.
 - **Blueprint: block an app after some minutes a day** - For a Google TV, where Google ignores app limits but a block works. Family Link blocks the app for the child, so on every device of the child until the unblock time.
+- **Web filter select** - `select.<child>_web_filter` switches the Chrome filter mode: allow all sites, try to block explicit sites, or only allow approved sites. With the school time sensors, an automation can open the web for homework and go back to approved sites after.
 
 ### Fixed
 - **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.

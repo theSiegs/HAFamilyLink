@@ -1890,12 +1890,9 @@ class FamilyLinkAppUsageSensor(ChildDataMixin, CoordinatorEntity, RestoreEntity,
 		self._minutes: float | None = None
 		title, self._attr_entity_picture = _app_details(self._get_child_data()).get(package, (package, None))
 		self._attr_unique_id = app_usage_unique_id(child_id, package, device_id)
-		# The device name comes first: the child's hub for a child's sensor; for
-		# one device it is the device, which several children can share
-		if device_id:
-			self._attr_name = f"{child_name} {title} usage today"
-		else:
-			self._attr_name = f"{title} usage today"
+		# The device name comes first: the child's hub, or the child's own copy
+		# of the device (a TV several children use is one device per child)
+		self._attr_name = f"{title} usage today"
 		self._update_minutes()
 
 	@property

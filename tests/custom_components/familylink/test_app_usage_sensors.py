@@ -180,14 +180,14 @@ def test_a_childs_sensor_counts_the_minutes_used_today_over_all_devices():
     }
 
 
-def test_a_device_sensor_counts_only_that_device_and_names_the_child():
+def test_a_device_sensor_counts_only_that_device_on_the_childs_copy_of_it():
     sensor = FamilyLinkAppUsageSensor(
         _coordinator(), "1001", "Alex", "com.video", device_id="dev-tv", device_name="Lounge TV"
     )
 
     assert sensor.native_value == 8.0
-    # The device name comes first; several children can share the device
-    assert sensor.name == "Alex Video usage today"
+    # The device name comes first; the device is this child's copy of it
+    assert sensor.name == "Video usage today"
     assert sensor.extra_state_attributes == {"package": "com.video", "last_7_days_minutes": 60.0}
     assert ("familylink", "1001_dev-tv") in sensor.device_info["identifiers"]
 

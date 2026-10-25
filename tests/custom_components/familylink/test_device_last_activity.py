@@ -27,7 +27,8 @@ def test_the_last_check_in_is_a_timestamp():
     assert sensor.device_class == SensorDeviceClass.TIMESTAMP
     assert sensor.entity_category == EntityCategory.DIAGNOSTIC
     assert sensor.unique_id == "familylink_1001_dev-phone_last_activity"
-    assert sensor.name == "Pixel 9 Pro Last Activity"
+    assert sensor.has_entity_name
+    assert sensor.name == "Last Activity"
 
 
 def test_no_or_unreadable_time_reads_unknown_and_a_missing_device_unavailable():

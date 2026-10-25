@@ -200,7 +200,8 @@ class FamilyLinkDeviceLastActivitySensor(CoordinatorEntity, SensorEntity):
         self._device_id = device_id
         self._device_name = device_name
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_last_activity"
-        self._attr_name = f"{device_name} Last Activity"
+        self._attr_has_entity_name = True
+        self._attr_name = "Last Activity"
 
     @property
     def device_info(self) -> DeviceInfo:

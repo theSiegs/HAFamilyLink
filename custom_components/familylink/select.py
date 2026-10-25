@@ -174,6 +174,7 @@ class FamilyLinkWebFilterSelect(FamilyLinkContactRestrictionSelect):
     is read back at once.
     """
 
+    _attr_has_entity_name = True
     _attr_options = list(WEB_FILTER_OPTION_TO_MODE)
     _attr_icon = "mdi:web"
 
@@ -185,7 +186,7 @@ class FamilyLinkWebFilterSelect(FamilyLinkContactRestrictionSelect):
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator, child_id, child_name)
-        self._attr_name = f"{child_name} Web Filter"
+        self._attr_name = "Web Filter"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_web_filter"
 
     def _websites(self) -> dict[str, Any] | None:

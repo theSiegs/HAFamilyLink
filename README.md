@@ -60,7 +60,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_screen_time_formatted` | Child | The same value as `HH:MM:SS` text |
 | `sensor.<child>_installed_apps`, `_blocked_apps`, `_apps_with_time_limits`, `_apps_without_limits`, `_always_allowed_apps` | Child | App counts, with the matching app lists in attributes |
 | `sensor.<child>_top_app_1` to `_top_app_10` | Child | Today's most-used apps, usage in minutes |
-| `sensor.<child>_<app>_usage_today`, `sensor.<device>_<child>_<app>_usage_today` | Child, device | Minutes one app was used today: the 8 apps the child used most (all devices together, `by_device` in attributes), and the 5 used most on each device that takes no time limits, such as a TV or a watch. `last_7_days_minutes` in attributes. See [Usage by hour](#usage-by-hour) |
+| `sensor.<child>_<app>_usage_today`, `sensor.<device>_<app>_usage_today` | Child, device | Minutes one app was used today: the 8 apps the child used most (all devices together, `by_device` in attributes), and the 5 used most on each device that takes no time limits, such as a TV or a watch. `last_7_days_minutes` in attributes. A TV several children use is one device per child: rename them (for example "Lounge TV (Alex)") to tell them apart. See [Usage by hour](#usage-by-hour) |
 | `sensor.<child>_device_count` | Child | Number of supervised devices |
 | `sensor.<child>_child_info` | Child | Profile: name, email, birthday, age band |
 | `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location |

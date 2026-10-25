@@ -72,12 +72,7 @@ def _coordinator(websites) -> SimpleNamespace:
     return SimpleNamespace(
         data={"children_data": [{"child_id": CHILD, "child_name": "Alex", "websites": websites}]},
         last_update_success=True,
-        client=SimpleNamespace(
-            async_set_web_filter=AsyncMock(),
-            async_get_website_restrictions=AsyncMock(
-                return_value={"filter_level": "safeSites", "approved": [], "blocked": []}
-            ),
-        ),
+        client=SimpleNamespace(async_set_web_filter=AsyncMock()),
         store_websites=MagicMock(),
         async_request_refresh=AsyncMock(),
     )
@@ -94,6 +89,20 @@ def test_the_select_shows_the_mode_read_with_the_site_lists() -> None:
     assert select.extra_state_attributes == {"child_id": CHILD, "child_name": "Alex", "filter_level": "safeSites"}
 
 
+@pytest.mark.parametrize(
+    ("level", "option"),
+    [
+        ("allowByDefault", "Allow all sites"),
+        ("safeSites", "Try to block explicit sites"),
+        ("blockByDefault", "Only allow approved sites"),
+    ],
+)
+def test_each_filter_level_google_returns_is_an_option(level, option) -> None:
+    select = FamilyLinkWebFilterSelect(_coordinator({"filter_level": level}), CHILD, "Alex")
+
+    assert select.current_option == option
+
+
 def test_the_select_is_unavailable_until_the_site_lists_are_read() -> None:
     select = FamilyLinkWebFilterSelect(_coordinator(None), CHILD, "Alex")
 
@@ -108,19 +117,21 @@ def test_an_unknown_filter_level_shows_no_option_but_stays_in_the_attributes() -
     assert select.extra_state_attributes["filter_level"] == "somethingNew"
 
 
-async def test_choosing_an_option_sets_the_mode_and_reads_the_lists_back() -> None:
-    coordinator = _coordinator({"filter_level": "safeSites"})
+async def test_choosing_an_option_sets_the_mode_and_keeps_it_with_the_lists() -> None:
+    coordinator = _coordinator({"filter_level": "safeSites", "approved": ["a.example"], "blocked": []})
     select = FamilyLinkWebFilterSelect(coordinator, CHILD, "Alex")
 
     await select.async_select_option("Only allow approved sites")
 
     coordinator.client.async_set_web_filter.assert_awaited_once_with(CHILD, "2")
-    coordinator.store_websites.assert_called_once()
-    assert coordinator.store_websites.call_args.args[0] == CHILD
+    # Not read back: Google can still answer with the previous mode
+    coordinator.store_websites.assert_called_once_with(
+        CHILD, {"filter_level": "blockByDefault", "approved": ["a.example"], "blocked": []}
+    )
     coordinator.async_request_refresh.assert_awaited_once()
 
 
-async def test_a_failed_change_raises_and_reads_nothing() -> None:
+async def test_a_failed_change_raises_and_keeps_the_mode() -> None:
     coordinator = _coordinator({"filter_level": "safeSites"})
     coordinator.client.async_set_web_filter.side_effect = RuntimeError("HTTP 400")
     select = FamilyLinkWebFilterSelect(coordinator, CHILD, "Alex")
@@ -128,17 +139,5 @@ async def test_a_failed_change_raises_and_reads_nothing() -> None:
     with pytest.raises(HomeAssistantError, match="HTTP 400"):
         await select.async_select_option("Allow all sites")
 
-    coordinator.client.async_get_website_restrictions.assert_not_called()
-    coordinator.async_request_refresh.assert_not_called()
-
-
-async def test_a_failed_read_back_still_refreshes() -> None:
-    coordinator = _coordinator({"filter_level": "safeSites"})
-    coordinator.client.async_get_website_restrictions.side_effect = RuntimeError("HTTP 503")
-    select = FamilyLinkWebFilterSelect(coordinator, CHILD, "Alex")
-
-    await select.async_select_option("Try to block explicit sites")
-
-    coordinator.client.async_set_web_filter.assert_awaited_once_with(CHILD, "3")
     coordinator.store_websites.assert_not_called()
-    coordinator.async_request_refresh.assert_awaited_once()
+    coordinator.async_request_refresh.assert_not_called()

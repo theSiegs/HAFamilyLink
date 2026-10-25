@@ -4193,7 +4193,10 @@ class FamilyLinkClient:
 	#        [null, [[1, ["124", null, [childId]], mode]], [[1, 3, 4, 5, 6], 1]]
 	# "124" is the Chrome filter setting resource; the child id is in the body,
 	# not the path. The trailing [[1, 3, 4, 5, 6], 1] is sent as the web app
-	# sends it. The mode reads back as filterLevel in websites:listRestrictions.
+	# sends it. Confirmed live 2026-10-24 for the three modes, which read back
+	# as filterLevel in websites:listRestrictions: 1 allowByDefault,
+	# 2 blockByDefault, 3 safeSites. A read right after a change can still
+	# give the previous mode.
 	WEB_FILTER_RESOURCE = "124"
 	WEB_FILTER_ALL_SITES = "1"
 	WEB_FILTER_APPROVED_ONLY = "2"

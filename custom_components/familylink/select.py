@@ -45,8 +45,11 @@ WEB_FILTER_OPTION_TO_MODE = {
     OPTION_APPROVED_ONLY: FamilyLinkClient.WEB_FILTER_APPROVED_ONLY,
 }
 FILTER_LEVEL_TO_OPTION = {
+    "allowByDefault": OPTION_ALL_SITES,
     "safeSites": OPTION_BLOCK_EXPLICIT,
+    "blockByDefault": OPTION_APPROVED_ONLY,
 }
+OPTION_TO_FILTER_LEVEL = {option: level for level, option in FILTER_LEVEL_TO_OPTION.items()}
 
 
 async def async_setup_entry(
@@ -171,7 +174,8 @@ class FamilyLinkWebFilterSelect(FamilyLinkContactRestrictionSelect):
     The mode comes with the site lists the coordinator reads every
     WEBSITES_REFRESH seconds, so the entity is unavailable until they have
     been read (an account without Chrome never has them). A change made here
-    is read back at once.
+    shows at once, without a read: Google can still return the previous mode
+    for a moment.
     """
 
     _attr_has_entity_name = True
@@ -217,16 +221,13 @@ class FamilyLinkWebFilterSelect(FamilyLinkContactRestrictionSelect):
         }
 
     async def async_select_option(self, option: str) -> None:
-        """Change the Chrome filter mode, then read it back."""
-        client = self.coordinator.client
+        """Change the Chrome filter mode."""
         try:
-            await client.async_set_web_filter(self._child_id, WEB_FILTER_OPTION_TO_MODE[option])
+            await self.coordinator.client.async_set_web_filter(self._child_id, WEB_FILTER_OPTION_TO_MODE[option])
         except Exception as err:
             raise HomeAssistantError(f"Setting the web filter for {self._child_name} failed: {err}") from err
         _LOGGER.info(f"Set the web filter to '{option}' for {self._child_name}")
-        try:
-            self.coordinator.store_websites(self._child_id, await client.async_get_website_restrictions(self._child_id))
-        except Exception as err:
-            # The change was made; the mode shows at the next read of the lists
-            _LOGGER.debug(f"Reading the site lists back for {self._child_name} failed: {err}")
+        websites = self._websites()
+        if websites is not None:
+            self.coordinator.store_websites(self._child_id, {**websites, "filter_level": OPTION_TO_FILTER_LEVEL[option]})
         await self.coordinator.async_request_refresh()

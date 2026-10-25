@@ -103,7 +103,8 @@ class FamilyLinkContactRestrictionSelect(CoordinatorEntity, SelectEntity):
         super().__init__(coordinator)
         self._child_id = child_id
         self._child_name = child_name
-        self._attr_name = f"{child_name} Allowed Calls & Texts"
+        self._attr_has_entity_name = True
+        self._attr_name = "Allowed Calls & Texts"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_allowed_calls_texts"
 
     @property

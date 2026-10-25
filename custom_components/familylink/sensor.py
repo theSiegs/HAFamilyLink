@@ -259,7 +259,8 @@ class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
         self._device_id = device_id
         self._device_name = device_name
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_daily_screen_time"
-        self._attr_name = f"{device_name} Daily Screen Time"
+        self._attr_has_entity_name = True
+        self._attr_name = "Daily Screen Time"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -386,7 +387,8 @@ class ScreenTimeRemainingSensor(CoordinatorEntity, SensorEntity):
         self._child_name = child_name
         self._device_id = device_id
         self._device_name = device_name
-        self._attr_name = f"{device_name} Screen Time Remaining"
+        self._attr_has_entity_name = True
+        self._attr_name = "Screen Time Remaining"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_screen_time_remaining"
         self._attr_icon = "mdi:clock-time-four-outline"
         self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
@@ -496,7 +498,8 @@ class NextRestrictionSensor(CoordinatorEntity, SensorEntity):
         self._child_name = child_name
         self._device_id = device_id
         self._device_name = device_name
-        self._attr_name = f"{device_name} Next Restriction"
+        self._attr_has_entity_name = True
+        self._attr_name = "Next Restriction"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_next_restriction"
         self._attr_icon = "mdi:clock-alert-outline"
 
@@ -704,7 +707,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 
 		self._sensor_type = sensor_type
-		self._attr_name = f"{child_name} Daily Screen Time"
+		self._attr_has_entity_name = True
+		self._attr_name = "Daily Screen Time"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_screen_time_{sensor_type}"
 
 	@property
@@ -821,7 +825,8 @@ class FamilyLinkScreenTimeFormattedSensor(ChildDataMixin, CoordinatorEntity, Sen
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 
-		self._attr_name = f"{child_name} Screen Time Formatted"
+		self._attr_has_entity_name = True
+		self._attr_name = "Screen Time Formatted"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_screen_time_formatted"
 
 	@property
@@ -885,7 +890,8 @@ class FamilyLinkAppCountSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Installed Apps"
+		self._attr_has_entity_name = True
+		self._attr_name = "Installed Apps"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_app_count"
 
 	@property
@@ -977,7 +983,8 @@ class FamilyLinkBlockedAppsSensor(ChildDataMixin, CoordinatorEntity, SensorEntit
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Blocked Apps"
+		self._attr_has_entity_name = True
+		self._attr_name = "Blocked Apps"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_blocked_apps"
 
 	@property
@@ -1042,7 +1049,8 @@ class FamilyLinkWebsitesSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		"""Initialize the sensor; ``kind`` is "blocked" or "approved"."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 		self._kind = kind
-		self._attr_name = f"{child_name} {kind.capitalize()} Sites"
+		self._attr_has_entity_name = True
+		self._attr_name = f"{kind.capitalize()} Sites"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{kind}_sites"
 		self._attr_icon = "mdi:web-cancel" if kind == "blocked" else "mdi:web-check"
 
@@ -1092,7 +1100,8 @@ class FamilyLinkAppsWithLimitsSensor(ChildDataMixin, CoordinatorEntity, SensorEn
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Apps with Time Limits"
+		self._attr_has_entity_name = True
+		self._attr_name = "Apps with Time Limits"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_apps_with_limits"
 
 	@property
@@ -1160,7 +1169,8 @@ class FamilyLinkAppsWithoutLimitsSensor(ChildDataMixin, CoordinatorEntity, Senso
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Apps Without Limits"
+		self._attr_has_entity_name = True
+		self._attr_name = "Apps Without Limits"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_apps_without_limits"
 
 	def _get_apps_without_limits(self) -> list[dict]:
@@ -1232,7 +1242,8 @@ class FamilyLinkAlwaysAllowedAppsSensor(ChildDataMixin, CoordinatorEntity, Senso
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Always Allowed Apps"
+		self._attr_has_entity_name = True
+		self._attr_name = "Always Allowed Apps"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_always_allowed_apps"
 
 	def _get_always_allowed_apps(self) -> list[dict]:
@@ -1303,7 +1314,8 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 		self._rank = rank
-		self._attr_name = f"{child_name} Top App #{rank}"
+		self._attr_has_entity_name = True
+		self._attr_name = f"Top App #{rank}"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_top_app_{rank}"
 
 	@property
@@ -1407,7 +1419,8 @@ class FamilyLinkDeviceCountSensor(ChildDataMixin, CoordinatorEntity, SensorEntit
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Device Count"
+		self._attr_has_entity_name = True
+		self._attr_name = "Device Count"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_device_count"
 
 	@property
@@ -1466,7 +1479,8 @@ class FamilyLinkChildInfoSensor(ChildDataMixin, CoordinatorEntity, SensorEntity)
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Child Info"
+		self._attr_has_entity_name = True
+		self._attr_name = "Child Info"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_child_info"
 
 	@property
@@ -1545,7 +1559,8 @@ class DailyLimitDeviceSensor(CoordinatorEntity, SensorEntity):
 		self._child_name = child_name
 		self._device_id = device_id
 		self._device_name = device_name
-		self._attr_name = f"{device_name} Daily Limit"
+		self._attr_has_entity_name = True
+		self._attr_name = "Daily Limit"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_daily_limit"
 		self._attr_icon = "mdi:timer-outline"
 		self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
@@ -1627,7 +1642,8 @@ class ActiveBonusSensor(CoordinatorEntity, SensorEntity):
 		self._child_name = child_name
 		self._device_id = device_id
 		self._device_name = device_name
-		self._attr_name = f"{device_name} Active Bonus"
+		self._attr_has_entity_name = True
+		self._attr_name = "Active Bonus"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_active_bonus"
 		self._attr_icon = "mdi:clock-plus-outline"
 		self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
@@ -1705,7 +1721,8 @@ class FamilyLinkBatteryLevelSensor(ChildDataMixin, CoordinatorEntity, SensorEnti
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 
-		self._attr_name = f"{child_name} Battery Level"
+		self._attr_has_entity_name = True
+		self._attr_name = "Battery Level"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_battery_level"
 
 	@property

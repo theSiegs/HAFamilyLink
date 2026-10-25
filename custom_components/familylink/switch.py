@@ -301,7 +301,8 @@ class FamilyLinkBedtimeSwitch(CoordinatorEntity, SwitchEntity):
 
 		self._child_id = child_id
 		self._child_name = child_name
-		self._attr_name = f"{child_name} Bedtime"
+		self._attr_has_entity_name = True
+		self._attr_name = "Bedtime"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_bedtime"
 		self._attr_entity_category = EntityCategory.CONFIG
 
@@ -413,7 +414,8 @@ class FamilyLinkSchoolTimeSwitch(CoordinatorEntity, SwitchEntity):
 
 		self._child_id = child_id
 		self._child_name = child_name
-		self._attr_name = f"{child_name} School Time"
+		self._attr_has_entity_name = True
+		self._attr_name = "School Time"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_school_time"
 		self._attr_entity_category = EntityCategory.CONFIG
 
@@ -546,7 +548,8 @@ class FamilyLinkDailyLimitSwitch(CoordinatorEntity, SwitchEntity):
 
 		self._child_id = child_id
 		self._child_name = child_name
-		self._attr_name = f"{child_name} Daily Limit"
+		self._attr_has_entity_name = True
+		self._attr_name = "Daily Limit"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_daily_limit"
 		self._attr_entity_category = EntityCategory.CONFIG
 

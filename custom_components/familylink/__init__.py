@@ -10,6 +10,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 import voluptuous as vol
 from homeassistant.util import dt as dt_util
 
@@ -1311,3 +1312,23 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 	"""Reload config entry."""
 	await async_unload_entry(hass, entry)
 	await async_setup_entry(hass, entry)
+
+
+async def async_remove_config_entry_device(
+	hass: HomeAssistant, entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+	"""Let the user delete a device Google no longer lists, e.g. a reset phone.
+
+	A child's hub or a device still in the latest data would come back on the
+	next refresh, so those stay. Without data there is nothing to judge by.
+	"""
+	coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+	data = getattr(coordinator, "data", None)
+	if not data:
+		return False
+	listed = set()
+	for child in data.get("children_data", []):
+		listed.add(child.get("child_id"))
+		for device in child.get("devices", []):
+			listed.add(f"{child.get('child_id')}_{device.get('id')}")
+	return not any(domain == DOMAIN and identifier in listed for domain, identifier in device_entry.identifiers)

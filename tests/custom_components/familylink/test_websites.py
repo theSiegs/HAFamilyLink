@@ -501,7 +501,8 @@ def test_sensors_show_count_sorted_sites_and_filter_level() -> None:
     approved = FamilyLinkWebsitesSensor(coordinator, CHILD, "Alex", "approved")
 
     assert blocked.unique_id == f"{DOMAIN}_{CHILD}_blocked_sites"
-    assert blocked.name == "Alex Blocked Sites"
+    assert blocked.has_entity_name
+    assert blocked.name == "Blocked Sites"
     assert blocked.available
     assert blocked.native_value == 2
     assert blocked.extra_state_attributes == {

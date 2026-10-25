@@ -50,7 +50,7 @@ async def test_the_client_sends_the_mode_for_the_child_in_the_body() -> None:
     url = session.post.call_args.args[0]
     assert url == f"{FamilyLinkClient.BASE_URL}/people/settingResources:performAction"
     body = json.loads(session.post.call_args.kwargs["data"])
-    assert body == [None, [[[1, ["124", None, [CHILD]], "2"]], [[1, 3, 4, 5, 6], 1]]]
+    assert body == [None, [[1, ["124", None, [CHILD]], "2"]], [[1, 3, 4, 5, 6], 1]]
 
 
 async def test_the_client_raises_on_an_error_answer() -> None:
@@ -87,7 +87,8 @@ def test_the_select_shows_the_mode_read_with_the_site_lists() -> None:
     select = FamilyLinkWebFilterSelect(_coordinator({"filter_level": "safeSites"}), CHILD, "Alex")
 
     assert select.unique_id == f"{DOMAIN}_{CHILD}_web_filter"
-    assert select.name == "Alex Web Filter"
+    assert select.has_entity_name
+    assert select.name == "Web Filter"
     assert select.available
     assert select.current_option == "Try to block explicit sites"
     assert select.extra_state_attributes == {"child_id": CHILD, "child_name": "Alex", "filter_level": "safeSites"}

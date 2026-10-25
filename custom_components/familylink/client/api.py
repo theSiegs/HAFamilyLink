@@ -4190,7 +4190,7 @@ class FamilyLinkClient:
 
 	# Chrome filter mode, as the Family Link web app sets it (captured 2026-10):
 	#   POST people/settingResources:performAction with
-	#        [null, [[[1, ["124", null, [childId]], mode]], [[1, 3, 4, 5, 6], 1]]]
+	#        [null, [[1, ["124", null, [childId]], mode]], [[1, 3, 4, 5, 6], 1]]
 	# "124" is the Chrome filter setting resource; the child id is in the body,
 	# not the path. The trailing [[1, 3, 4, 5, 6], 1] is sent as the web app
 	# sends it. The mode reads back as filterLevel in websites:listRestrictions.
@@ -4205,7 +4205,7 @@ class FamilyLinkClient:
 			raise AuthenticationError("Not authenticated")
 		self._validate_id(account_id, "account_id")
 		session = await self._get_session()
-		body = [None, [[[1, [self.WEB_FILTER_RESOURCE, None, [account_id]], mode]], [[1, 3, 4, 5, 6], 1]]]
+		body = [None, [[1, [self.WEB_FILTER_RESOURCE, None, [account_id]], mode]], [[1, 3, 4, 5, 6], 1]]
 		async with session.post(
 			f"{self.BASE_URL}/people/settingResources:performAction",
 			headers={"Content-Type": "application/json+protobuf", "Cookie": self._get_cookie_header()},

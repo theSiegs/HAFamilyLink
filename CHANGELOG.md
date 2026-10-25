@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Web filter select** - `select.<child>_web_filter` switches the Chrome filter mode: allow all sites, try to block explicit sites, or only allow approved sites. With the school time sensors, an automation can open the web for homework and go back to approved sites after.
 
 ### Fixed
+- **Entity names no longer repeat the child or device name** - A new install named entities such as `sensor.alex_family_link_alex_battery_level`. The child and device entities now take the device name in front once, and follow a device renamed in Home Assistant. Existing entity ids are kept; only the friendly names get shorter.
 - **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
 - **On a failed apps fetch the device names and the time Google last got usage are kept** - The fallback to the cached data named the devices by their raw id and dropped `data_updated` until the next good fetch.
 

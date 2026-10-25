@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Device last activity** - `sensor.<device>_last_activity` (diagnostic): when Google last heard from the device. A check-in, not proof the child used it.
 - **Blueprint: block an app after some minutes a day** - For a Google TV, where Google ignores app limits but a block works. Family Link blocks the app for the child, so on every device of the child until the unblock time.
 - **Web filter select** - `select.<child>_web_filter` switches the Chrome filter mode: allow all sites, try to block explicit sites, or only allow approved sites. With the school time sensors, an automation can open the web for homework and go back to approved sites after.
+- **Delete old devices** - A device Google no longer lists (a reset phone, an emulator used once) can be deleted on its device page. A device still listed would come back, so it can't be.
 
 ### Fixed
 - **Entity names no longer repeat the child or device name** - A new install named entities such as `sensor.alex_family_link_alex_battery_level`. The child and device entities now take the device name in front once, and follow a device renamed in Home Assistant. Existing entity ids are kept; only the friendly names get shorter.

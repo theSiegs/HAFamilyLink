@@ -10,7 +10,7 @@ After a successful login, the add-on extracts the Google session cookies, encryp
 
 ## Installation
 
-1. Go to **Settings > Add-ons > Add-on Store**, open the three-dot menu, choose **Repositories**, and add `https://github.com/noiwid/HAFamilyLink`.
+1. Go to **Settings > Apps > Install app**, open the three-dot menu, choose **Repositories**, and add `https://github.com/noiwid/HAFamilyLink`.
 2. Install **Google Family Link Auth**. The prebuilt image is downloaded from GHCR, so the install only takes a moment.
 3. Optionally adjust the options in the **Configuration** tab (see [Configuration](#configuration)).
 4. Start the add-on. Enabling **Start on boot** and **Watchdog** is recommended.
@@ -37,7 +37,7 @@ log_level: info
 auth_timeout: 300
 language: ""
 timezone: ""
-vnc_password: familylink
+vnc_password: ""
 ```
 
 | Option | Type | Default | Description |
@@ -61,7 +61,7 @@ vnc_password: familylink
 
 The browser view behind noVNC shows a live Google session of the parent account. Whoever can open it can lift every restriction on the child's device. Keep this in mind:
 
-- **The VNC password is the only protection of port 6080.** Until version 1.9.0 the add-on shipped with a documented default password, so anyone on the home network could open the view; since 1.9.0 a random password is generated at every start when none is configured, and the web UI never carries it.
+- **The VNC password is the only protection of port 6080.** Update to 1.9.2 or later. Until 1.9.0 the add-on shipped with a documented default password; 1.9.0 and 1.9.1 generated and printed a password but did not enforce it (the image lacked the tool that applies it), so in those versions anyone who could reach port 6080 opened the view. Since 1.9.2 the password is required: a random one is generated at every start when none is configured, and the web UI never carries it. If you exposed port 6080 while running an older version, sign out of that Google session on other devices (Google Account > Security > Your devices) and log in again through the add-on.
 - **Unmap port 6080** (and 8099 if the integration runs on the same Home Assistant) in **Configuration > Network** when you are not authenticating. You only need them during a login.
 - **Stop the add-on after the login.** The integration reads the encrypted cookie file from `/share/familylink` on its own, so the add-on can stay stopped until the session expires. Disable **Start on boot** if you prefer.
 - **Never expose ports 8099 or 6080 to the internet**, through a reverse proxy, Nabu Casa or a port forward: `/api/cookies` hands out a Google session.
@@ -75,7 +75,7 @@ A broader hardening of the add-on (authenticated browser view, service token in 
 - Cookies are stored Fernet-encrypted in `/share/familylink/cookies.enc`, with the key in `/share/familylink/.key` (both mode 0600).
 - On first start in add-on mode, an API key is generated and saved to `/share/familylink/api_key` (0600). The integration reads that file automatically and calls `GET /api/cookies` with it: nothing to configure.
 - If the API is unreachable, the integration falls back to reading the encrypted file directly from `/share`.
-- In the standalone container no key is auto-generated: set the `API_KEY` environment variable yourself, otherwise `/api/cookies` is unprotected. See [DOCKER_STANDALONE.md](https://github.com/noiwid/HAFamilyLink/blob/main/DOCKER_STANDALONE.md).
+- In the standalone container the generated key is printed in the container log at every start (or set the `API_KEY` environment variable yourself): enter it in the integration's API-key field. See [DOCKER_STANDALONE.md](https://github.com/noiwid/HAFamilyLink/blob/main/DOCKER_STANDALONE.md).
 
 ### API endpoints (port 8099)
 
@@ -95,7 +95,7 @@ Current integrations send the key as an `X-API-Key` header. Query-key acceptance
 
 ### Where the logs are
 
-- Add-on: **Settings > Add-ons > Google Family Link Auth > Log**. From the CLI: `ha addons logs <repository-hash>_familylink-playwright` (installed add-ons carry a repository hash prefix in their slug).
+- Add-on: **Settings > Apps > Google Family Link Auth > Log**. From the CLI: `ha apps logs <repository-hash>_familylink-playwright` (installed add-ons carry a repository hash prefix in their slug).
 - Standalone container: `docker logs`; display-stack logs are also written to `/var/log/familylink/` inside the container.
 
 Set `log_level: debug` for more detail. A successful run logs, among others: `Starting authentication session: <id>`, `Navigating to Google Family Link...`, `Monitoring authentication for session <id>`, `Extracted N Google cookies`, `Saved N cookies to shared storage`.

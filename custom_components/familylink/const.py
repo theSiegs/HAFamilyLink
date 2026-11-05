@@ -27,6 +27,8 @@ CONF_APP_USAGE_PER_CHILD: Final = "app_usage_per_child"
 CONF_APP_USAGE_PER_DEVICE: Final = "app_usage_per_device"
 CONF_APP_USAGE_PINNED: Final = "app_usage_pinned"
 CONF_APP_USAGE_EXCLUDED: Final = "app_usage_excluded"
+# Home Assistant user ids allowed to control Family Link by hand (empty: everyone, issue #224)
+CONF_ALLOWED_USERS: Final = "allowed_users"
 
 AUTH_SOURCE_MANAGED: Final = "managed"
 AUTH_SOURCE_MANUAL: Final = "manual"
@@ -45,6 +47,7 @@ CAP_BEDTIME: Final = "capabilityBedtime"
 CAP_SCHOOL_TIME: Final = "capabilitySchoolTimeMode"
 CAP_LOCK_WITH_DEADLINE: Final = "capabilityLockWithDeadline"
 CAP_APP_ACTIVITY: Final = "capabilityAppActivity"
+CAP_BATTERY_REPORTING: Final = "capabilityBatteryReporting"
 
 # A device enforces screen-time rules (daily limit, bedtime, remaining time,
 # next restriction) only if it advertises one of these.

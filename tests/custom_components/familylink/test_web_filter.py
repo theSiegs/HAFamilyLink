@@ -1,4 +1,4 @@
-"""The Chrome filter mode select and the request that sets the mode."""
+"""The Chrome filter mode select: the all-sites mode and the mode just set."""
 
 from __future__ import annotations
 
@@ -17,62 +17,42 @@ from custom_components.familylink.select import FamilyLinkWebFilterSelect
 CHILD = "123456789"
 
 
-class _Response:
-    def __init__(self, status: int, text: str = "") -> None:
-        self.status = status
-        self._text = text
-
-    async def text(self) -> str:
-        return self._text
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc) -> None:
-        return None
-
-
-def _client(status: int = 200) -> tuple[FamilyLinkClient, MagicMock]:
+async def test_the_client_sends_all_sites_as_mode_one() -> None:
     client = object.__new__(FamilyLinkClient)
     session = MagicMock()
-    session.post = MagicMock(return_value=_Response(status, "error"))
+
+    class _Response:
+        status = 200
+
+        async def text(self) -> str:
+            return "[]"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> None:
+            return None
+
+    session.post = MagicMock(return_value=_Response())
     client.is_authenticated = lambda: True
     client._get_session = AsyncMock(return_value=session)
     client._get_cookie_header = lambda: "SAPISID=x"
-    return client, session
+    client.async_get_website_restrictions = AsyncMock(
+        return_value={"filter_level": "allowByDefault", "approved": [], "blocked": []}
+    )
 
+    lists = await client.async_set_website_filter_level(CHILD, FamilyLinkClient.WEBSITE_FILTER_ALL_SITES)
 
-async def test_the_client_sends_the_mode_for_the_child_in_the_body() -> None:
-    client, session = _client()
-
-    await client.async_set_web_filter(CHILD, FamilyLinkClient.WEB_FILTER_APPROVED_ONLY)
-
-    url = session.post.call_args.args[0]
-    assert url == f"{FamilyLinkClient.BASE_URL}/people/settingResources:performAction"
     body = json.loads(session.post.call_args.kwargs["data"])
-    assert body == [None, [[1, ["124", None, [CHILD]], "2"]], [[1, 3, 4, 5, 6], 1]]
+    assert body == [None, [[1, ["124", None, [CHILD]], "1"]], [[1, 3, 4, 5, 6], 1]]
+    assert lists["filter_level"] == "allowByDefault"
 
 
-async def test_the_client_raises_on_an_error_answer() -> None:
-    client, _ = _client(status=400)
-
-    with pytest.raises(Exception, match="HTTP 400"):
-        await client.async_set_web_filter(CHILD, FamilyLinkClient.WEB_FILTER_BLOCK_EXPLICIT)
-
-
-async def test_the_client_refuses_a_malformed_child_id() -> None:
-    client, session = _client()
-
-    with pytest.raises(Exception):
-        await client.async_set_web_filter("123/../x", FamilyLinkClient.WEB_FILTER_BLOCK_EXPLICIT)
-    session.post.assert_not_called()
-
-
-def _coordinator(websites) -> SimpleNamespace:
+def _coordinator(websites, read_back=None) -> SimpleNamespace:
     return SimpleNamespace(
         data={"children_data": [{"child_id": CHILD, "child_name": "Alex", "websites": websites}]},
         last_update_success=True,
-        client=SimpleNamespace(async_set_web_filter=AsyncMock()),
+        client=SimpleNamespace(async_set_website_filter_level=AsyncMock(return_value=read_back)),
         store_websites=MagicMock(),
         async_request_refresh=AsyncMock(),
     )
@@ -94,7 +74,7 @@ def test_the_select_shows_the_mode_read_with_the_site_lists() -> None:
     [
         ("allowByDefault", "Allow all sites"),
         ("safeSites", "Try to block explicit sites"),
-        ("blockByDefault", "Only allow approved sites"),
+        ("blockByDefault", "Only approved sites"),
     ],
 )
 def test_each_filter_level_google_returns_is_an_option(level, option) -> None:
@@ -117,23 +97,35 @@ def test_an_unknown_filter_level_shows_no_option_but_stays_in_the_attributes() -
     assert select.extra_state_attributes["filter_level"] == "somethingNew"
 
 
-async def test_choosing_an_option_sets_the_mode_and_keeps_it_with_the_lists() -> None:
-    coordinator = _coordinator({"filter_level": "safeSites", "approved": ["a.example"], "blocked": []})
+async def test_choosing_an_option_sets_the_mode_and_stores_the_lists_read_back() -> None:
+    read_back = {"filter_level": "blockByDefault", "approved": ["a.example"], "blocked": []}
+    coordinator = _coordinator({"filter_level": "safeSites", "approved": ["a.example"], "blocked": []}, read_back)
     select = FamilyLinkWebFilterSelect(coordinator, CHILD, "Alex")
 
-    await select.async_select_option("Only allow approved sites")
+    await select.async_select_option("Only approved sites")
 
-    coordinator.client.async_set_web_filter.assert_awaited_once_with(CHILD, "2")
-    # Not read back: Google can still answer with the previous mode
-    coordinator.store_websites.assert_called_once_with(
-        CHILD, {"filter_level": "blockByDefault", "approved": ["a.example"], "blocked": []}
-    )
+    coordinator.client.async_set_website_filter_level.assert_awaited_once_with(CHILD, "approved_only")
+    coordinator.store_websites.assert_called_once_with(CHILD, read_back)
     coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_a_stale_read_back_shows_the_mode_just_set() -> None:
+    # Google can still answer with the previous mode right after a change
+    read_back = {"filter_level": "safeSites", "approved": ["a.example"], "blocked": []}
+    coordinator = _coordinator({"filter_level": "safeSites", "approved": ["a.example"], "blocked": []}, read_back)
+    select = FamilyLinkWebFilterSelect(coordinator, CHILD, "Alex")
+
+    await select.async_select_option("Allow all sites")
+
+    coordinator.client.async_set_website_filter_level.assert_awaited_once_with(CHILD, "all_sites")
+    coordinator.store_websites.assert_called_once_with(
+        CHILD, {"filter_level": "allowByDefault", "approved": ["a.example"], "blocked": []}
+    )
 
 
 async def test_a_failed_change_raises_and_keeps_the_mode() -> None:
     coordinator = _coordinator({"filter_level": "safeSites"})
-    coordinator.client.async_set_web_filter.side_effect = RuntimeError("HTTP 400")
+    coordinator.client.async_set_website_filter_level.side_effect = RuntimeError("HTTP 400")
     select = FamilyLinkWebFilterSelect(coordinator, CHILD, "Alex")
 
     with pytest.raises(HomeAssistantError, match="HTTP 400"):

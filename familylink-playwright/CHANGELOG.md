@@ -2,6 +2,38 @@
 
 All notable changes to the Google Family Link Auth Add-on will be documented in this file.
 
+## [1.9.5] - 2026-11-03
+
+### Security
+- **The standalone image no longer hands out the Google session without a key.** Without `API_KEY`, `/api/cookies` was open to anyone who could reach port 8099, the supervised child included. A key is now generated at first start, kept in `/share/familylink/api_key` (`./data/api_key` with the compose file) and printed in the container log at every start: `docker logs familylink-auth | grep "Cookie API key"`. **Standalone users:** after the update the integration reports an invalid API key until you open its *Reconfigure* and enter that key (or set `API_KEY` yourself). Home Assistant OS add-on installs are not affected: the key there was already generated and shared.
+- **The login browser no longer reaches local files.** Anyone watching a login through noVNC could type `file:///share/familylink/` in Chromium, or pick those files in a website's upload dialog, and get the stored session; a browser policy now blocks `file://` addresses and file dialogs in both images.
+- **One login at a time, really.** Several "Start Authentication" requests sent together (the endpoint needs no key in add-on mode) each passed the single-session check and launched their own Chromium, enough to run a Raspberry Pi out of memory.
+
+### Fixed
+- **A failed start no longer blocks every later login.** When the Google page did not load in time at the start of a login (a DNS hiccup, a slow Pi), the dead session still counted as running and every later "Start Authentication" failed until the add-on was restarted.
+- A key with non-ASCII characters is refused with 403 instead of an internal error.
+
+## [1.9.4] - 2026-11-03
+
+### Fixed
+- **A language written with an underscore no longer breaks the Google login (#209).** With `language: en_EN` or `de_DE`, the browser sent that value in its Accept-Language header; Google's servers then refused the sign-in page's scripts and fonts (CORS), so the page showed its form but Enter, "Next" and every button did nothing. The language is now turned into the form browsers expect (`en_EN` becomes `en-EN`, `de_DE` becomes `de-DE`), and the log says so. Reported by @SgtSeppel.
+
+## [1.9.3] - 2026-10-29
+
+### Added
+- **The log says why a Google login page does not respond.** During a login the add-on now logs, once each, the requests of the login pages that fail or are refused, their script errors and console errors (URL host and path and the error only, no page content). A sign-in page whose scripts did not load still shows the form and its plain links, but its buttons, Enter and the typed address do nothing; these lines show which Google host was blocked, for example by a DNS filter, a VPN or a proxy (#209).
+
+## [1.9.2] - 2026-10-28
+
+### Security
+- **The VNC password is now actually required.** Since 1.9.0 the add-on generates a VNC password and prints it in the log, but the image did not include `vncpasswd` (Debian package `tigervnc-tools`), so the start script silently started TigerVNC with no authentication: anyone who could reach port 6080 opened the browser holding the parent's Google session. The tool is now installed in both images, and the scripts no longer start TigerVNC without a password: if it cannot be set, they fall back to x11vnc, which takes the password directly. Found while looking into #209. If you exposed port 6080 while running 1.9.0 or 1.9.1, sign out of the Google session used for Family Link on other devices (Google Account > Security > Your devices) and log in again through the add-on.
+
+## [1.9.1] - 2026-10-27
+
+### Security
+- **Images rebuilt on Playwright 1.64.1, which bundles Node.js 24.22.1** (the 2026-10-21 Node.js security release: TLS hostname verification, Brotli). The browser driver is the only Node.js runtime the container uses. Reported by @Sawtaytoes (#210).
+- **Debian's `nodejs` and `npm` are no longer installed.** They put an end-of-life Node.js 18 in both images without anything using it; dropping them removes it from vulnerability scans and shrinks the images.
+
 ## [1.9.0] - 2026-09-04
 
 ### Security

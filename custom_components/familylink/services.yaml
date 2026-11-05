@@ -456,22 +456,47 @@ set_school_time:
     recurring WEEKLY school time slot of that day (the day must already have a
     school time window in Family Link). Use scope "today" for a one-off
     override of today's school time that leaves the weekly schedule unchanged.
-    If no day is specified, applies to today.
+    If no day is specified, applies to today. For a school day with a break,
+    give every window of the day in "windows" instead of a start and an end.
   fields:
     start_time:
       name: Start Time
-      description: School time start (e.g., 08:00)
-      required: true
+      description: School time start (e.g., 08:00). Not with "windows".
+      required: false
       example: "08:00"
       selector:
         time:
     end_time:
       name: End Time
-      description: School time end, same day and after the start (e.g., 13:15)
-      required: true
+      description: School time end, same day and after the start (e.g., 13:15). Not with "windows".
+      required: false
       example: "13:15"
       selector:
         time:
+    windows:
+      name: Windows
+      description: >-
+        Every window of the day in order, "HH:MM-HH:MM" each, for a school day
+        with a break (e.g. 08:00-12:00 and 13:30-15:00), the same list as the
+        windows attribute of the school time entities. Two windows on a day
+        that has one add the break, one window on a day that has two removes
+        it (Family Link allows one break per day). Replaces start and end.
+        Weekly scope only; the day must have school time in Family Link.
+      required: false
+      example: "08:00-12:00"
+      selector:
+        text:
+          multiple: true
+    enabled:
+      name: Enabled
+      description: >-
+        Switch the day's school time on or off in the weekly schedule, keeping
+        its hours (the checkbox of the day in the Family Link weekly editor).
+        On its own, without start, end or windows. Weekly scope only.
+      required: false
+      example: false
+      selector:
+        boolean:
     day:
       name: Day
       description: Day of the week. If not specified, applies to today.
@@ -774,6 +799,35 @@ remove_site:
         text:
           multiple: true
 
+set_filter_level:
+  name: Set Web Filter Level
+  description: "Switch the child's Chrome web filter between every site with no filter, the approved sites only (the allow list) and every site with Google's explicit-content filter, as under 'Google Chrome and Web' in the Family Link app. Applies to the child's Google account, so to every Chrome the child is signed in to."
+  fields:
+    entity_id:
+      name: Child Entity
+      description: Select any Family Link entity of the child
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+    filter_level:
+      name: Filter Level
+      description: "all_sites: every site, no filter. approved_only: only the approved sites can be opened. filtered: every site, with Google's explicit-content filter."
+      required: true
+      example: "filtered"
+      selector:
+        select:
+          options:
+            - all_sites
+            - approved_only
+            - filtered
 sync_site_list:
   name: Sync Site List
   description: "Keep the child's blocked sites in step with a published list of domains (one per line, '#' comments). Adds what the list gained, removes only what this list added before and has since dropped; entries made by hand and approved sites are left alone. The list comes from a third party, so it must be served over https, is read up to 1 MiB, and only plain domains are taken (wildcards, web addresses, IP addresses and bare suffixes such as co.uk are ignored). An answer with no usable domain, or one that would remove most of what the list added, is refused; stop removes everything the list added. Administrators only."

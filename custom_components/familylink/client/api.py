@@ -774,15 +774,18 @@ class FamilyLinkClient:
 				if response.status != 200:
 					response_text = await response.text()
 					_LOGGER.error(f"Failed to fetch location (HTTP {response.status}): {response_text}")
+					if response.status == 429 or response.status >= 500:
+						# Transient: the caller keeps the last position
+						raise NetworkError(f"Location request failed with HTTP {response.status}")
+					# Lasting (sharing turned off, access refused): no position, not a frozen one
 					return None
 
 				data = await response.json()
-				_LOGGER.debug(f"Location response: {str(data)[:500]}")
 
 				# Parse the protobuf-like JSON response
 				# Structure: [[null, timestamp], [child_id, status, [location_data], ...]]
 				if not isinstance(data, list) or len(data) < 2:
-					_LOGGER.warning(f"Unexpected location response structure: {data}")
+					_LOGGER.warning(f"Unexpected location response structure for child {account_id}")
 					return None
 
 				child_data = data[1] if len(data) > 1 else None
@@ -863,19 +866,22 @@ class FamilyLinkClient:
 					"battery_level": battery_level,
 				}
 
+				# No position in the log: it ends up pasted in public issues
 				_LOGGER.debug(
-					f"Location for child {account_id}: "
-					f"({latitude}, {longitude}) accuracy={accuracy}m, "
-					f"place={place_name or 'unknown'}, device={source_device_id}, "
-					f"battery={battery_level}%"
+					f"Location for child {account_id}: accuracy={accuracy}m, "
+					f"device={source_device_id}, battery={battery_level}%"
 				)
 
 				return result
 
-		except SessionExpiredError:
-			raise  # Re-raise to trigger auth notification
-		except Exception as err:
+		except (SessionExpiredError, NetworkError):
+			raise  # Session refresh / the caller keeps the last position
+		except (aiohttp.ClientError, asyncio.TimeoutError) as err:
 			_LOGGER.error(f"Failed to fetch location for child {account_id}: {err}")
+			raise NetworkError(f"Failed to fetch location: {err}") from err
+		except Exception as err:
+			# An answer that no longer parses is lasting: no position rather than a frozen one
+			_LOGGER.error(f"Failed to read the location of child {account_id}: {err}")
 			return None
 
 	async def async_block_app(self, package_name: str, account_id: str | None = None) -> bool:
@@ -3484,6 +3490,318 @@ class FamilyLinkClient:
 
 		return _walk(data)
 
+	@classmethod
+	def _find_weekly_school_time_rows(cls, data: Any, day: int) -> list[list]:
+		"""Every live weekly school time row of `day`, earliest start first.
+
+		A day with a break has several rows (#190); a day without school time
+		has none.
+		"""
+		bedtime_rule_id = cls._find_revision_rule_id(data, 1)
+		schooltime_rule_id = cls._find_revision_rule_id(data, 2)
+		rows: list[list] = []
+
+		def _walk(value: Any) -> None:
+			if isinstance(value, list):
+				if cls._is_school_time_slot_row(value, day, bedtime_rule_id, schooltime_rule_id):
+					rows.append(value)
+					return
+				for item in value:
+					_walk(item)
+			elif isinstance(value, dict):
+				for item in value.values():
+					_walk(item)
+
+		_walk(data)
+		return sorted(rows, key=lambda row: (row[3][0], row[3][1]))
+
+	async def _async_put_weekly_school_time_slot(
+		self,
+		session: aiohttp.ClientSession,
+		cookie_header: str,
+		account_id: str,
+		slot_id: str,
+		start: list[int],
+		end: list[int],
+	) -> bool:
+		"""Rewrite one weekly school time slot (timeLimit:update), the call the app uses."""
+		return await self._async_put_weekly_school_time_slots(
+			session, cookie_header, account_id, updated=[(slot_id, start, end)]
+		)
+
+	async def _async_put_weekly_school_time_slots(
+		self,
+		session: aiohttp.ClientSession,
+		cookie_header: str,
+		account_id: str,
+		*,
+		updated: list[tuple[str, list[int], list[int]]],
+		created: list[tuple[int, list[int], list[int], str]] = (),
+		deleted: list[str] = (),
+	) -> bool:
+		"""Rewrite, create and delete weekly school time slots in one timeLimit:update.
+
+		The school time block sits at [2][0]: index [1] lists the slots to
+		create (`[None, weekday, 2, start, end, None, None, rule_id]`, Google
+		assigns the id), index [3] the slots to rewrite (`[slot_id, start,
+		end]`) and index [5] the ids to delete. The web app adds a break as
+		one rewrite plus one creation, and removes one as one rewrite plus one
+		deletion (captured 2026-10-27); Google answers 400 to two rewrites in
+		one call, so callers keep to those shapes. A plain rewrite keeps the
+		four-element block it always sent.
+		"""
+		update_rows = [[slot_id, start, end] for slot_id, start, end in updated]
+		if created or deleted:
+			block = [
+				None,
+				[[None, day, 2, start, end, None, None, rule_id] for day, start, end, rule_id in created] or None,
+				None,
+				update_rows or None,
+				None,
+				list(deleted) or None,
+			]
+		else:
+			block = [None, None, None, update_rows]
+		payload = json.dumps([None, account_id, [block, None, None, None, []], None, [1]])
+		async with session.post(
+			self._people_url(account_id, "timeLimit:update"),
+			headers={
+				"Content-Type": "application/json+protobuf",
+				"Cookie": cookie_header,
+			},
+			data=payload,
+			params={"$httpMethod": "PUT"},
+		) as response:
+			if response.status != 200:
+				_LOGGER.error(
+					"Failed to write weekly school time slots (rewrite %s, create %s, delete %s) (HTTP %s): %s",
+					[row[0] for row in update_rows], len(created), list(deleted),
+					response.status, await response.text(),
+				)
+				return False
+		return True
+
+	async def async_set_school_time_day_enabled(
+		self,
+		enabled: bool,
+		day: int | None = None,
+		account_id: str | None = None,
+	) -> bool:
+		"""Switch the weekly school time of `day` on or off, keeping its hours.
+
+		The app's weekly editor unchecks a day by setting the state of each
+		of its slots (`[[slot_id, 1]]` at index [2] of the school time block,
+		2 = on, 1 = off; captured 2026-10-27), the slot stays with its hours.
+		One timeLimit:update per slot of the day, in the captured shape.
+
+		Returns:
+			True when Google took the change, False otherwise.
+		"""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+
+		if not account_id:
+			account_id = await self.async_get_supervised_child_id()
+
+		if day is None:
+			day = dt_util.now().isoweekday()
+		if not (type(day) is int and 1 <= day <= 7):
+			_LOGGER.error(f"Invalid day {day}: expected 1 (Monday) to 7 (Sunday)")
+			return False
+
+		try:
+			session = await self._get_session()
+			cookie_header = self._get_cookie_header()
+			self._weekly_slot_cache.pop(account_id, None)
+			data = await self._async_get_weekly_schedule_data(account_id, session, cookie_header)
+			rows = self._find_weekly_school_time_rows(data, day) if data is not None else []
+			if not rows:
+				_LOGGER.error(
+					f"No weekly school time slot found for day {day}. Create a school time "
+					f"window for that day once in the Family Link app, then it can be "
+					f"switched from Home Assistant."
+				)
+				return False
+			state = 2 if enabled else 1
+			try:
+				for row in rows:
+					_LOGGER.debug(
+						"Setting WEEKLY school time slot %s of day=%s to state %s (was %s)",
+						row[0], day, state, row[2],
+					)
+					payload = json.dumps([
+						None,
+						account_id,
+						[[None, None, [[row[0], state]], None, None, None], None, None, None, []],
+						None,
+						[1],
+					])
+					async with session.post(
+						self._people_url(account_id, "timeLimit:update"),
+						headers={
+							"Content-Type": "application/json+protobuf",
+							"Cookie": cookie_header,
+						},
+						data=payload,
+						params={"$httpMethod": "PUT"},
+					) as response:
+						if response.status != 200:
+							_LOGGER.error(
+								"Failed to switch weekly school time slot %s of day %s %s (HTTP %s): %s",
+								row[0], day, "on" if enabled else "off",
+								response.status, await response.text(),
+							)
+							return False
+			finally:
+				self._weekly_slot_cache.pop(account_id, None)
+			_LOGGER.info(
+				f"Successfully switched weekly school time of day {day} {'on' if enabled else 'off'}"
+			)
+			return True
+		except SessionExpiredError:
+			raise
+		except Exception as err:
+			_LOGGER.error(f"Error switching school time of day {day}: {err}")
+			return False
+
+	async def async_set_school_time_windows(
+		self,
+		windows: list[tuple[str, str]],
+		day: int | None = None,
+		account_id: str | None = None,
+	) -> bool:
+		"""Set every weekly school time window of `day` at once (a school day with a break).
+
+		Google stores a school day with a break as several slots on the same
+		day (#190). `windows` lists the day's windows in order; the day's slots
+		are rewritten with the window at their rank, earliest slot first. Two
+		windows on a one-slot day add a slot (a break appears), one window on
+		a two-slot day removes the second (the break goes away). Google keeps
+		a day to two slots at most (a third one is refused with 400) and a day
+		always keeps one slot, so the list holds one or two windows and a day
+		without any slot cannot be given one (a day switched off in the app
+		keeps its slot, disabled). Every write is one timeLimit:update in a
+		shape the app sends: a change in the number of slots is one call with
+		the new row or the removed id and the kept slot rewritten alongside
+		(a lone creation or deletion is refused, and so is a rewrite that
+		overlaps a slot still to be removed); a plain change of hours is one
+		rewrite per slot.
+
+		Returns:
+			True when Google took every window, False otherwise (a write that
+			failed part-way leaves the earlier slots changed).
+		"""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+
+		if not account_id:
+			account_id = await self.async_get_supervised_child_id()
+
+		parsed: list[tuple[list[int], list[int]]] = []
+		for start_time, end_time in windows:
+			try:
+				start = list(parse_time_string(start_time))
+				end = list(parse_time_string(end_time))
+			except ValueError as err:
+				_LOGGER.error(f"Invalid school time window: {err}")
+				return False
+			if end <= start:
+				_LOGGER.error(
+					f"Invalid school time window {start_time}-{end_time}: the end must be after the start"
+				)
+				return False
+			if parsed and start <= parsed[-1][1]:
+				_LOGGER.error(
+					f"Invalid school time windows: {start_time}-{end_time} must start after the previous "
+					f"window ends (windows go in order and do not overlap)"
+				)
+				return False
+			parsed.append((start, end))
+		if not parsed:
+			_LOGGER.error("No school time window given")
+			return False
+		if len(parsed) > 2:
+			_LOGGER.error(
+				f"{len(parsed)} school time windows given for day {day}: Family Link allows "
+				f"one break per day, so at most two windows"
+			)
+			return False
+
+		if day is None:
+			day = dt_util.now().isoweekday()
+		if not (type(day) is int and 1 <= day <= 7):
+			_LOGGER.error(f"Invalid day {day}: expected 1 (Monday) to 7 (Sunday)")
+			return False
+
+		try:
+			session = await self._get_session()
+			cookie_header = self._get_cookie_header()
+			self._weekly_slot_cache.pop(account_id, None)
+			data = await self._async_get_weekly_schedule_data(account_id, session, cookie_header)
+			rows = self._find_weekly_school_time_rows(data, day) if data is not None else []
+			if not rows:
+				_LOGGER.error(
+					f"No weekly school time slot found for day {day}. Create a school time "
+					f"window for that day once in the Family Link app, then it can be "
+					f"changed from Home Assistant."
+				)
+				return False
+			kept = min(len(rows), len(parsed))
+			updated = [(row[0], start, end) for row, (start, end) in zip(rows, parsed)]
+			deleted = [row[0] for row in rows[kept:]]
+			created: list[tuple[int, list[int], list[int], str]] = []
+			if len(parsed) > kept:
+				rule_id = self._find_revision_rule_id(data, 2) if data is not None else None
+				if not rule_id:
+					rule_id = (await self.async_get_time_limit(account_id)).get("schooltime_rule_id")
+				if not rule_id:
+					_LOGGER.error(
+						f"Cannot add a school time window to day {day}: the school time rule id "
+						f"of this account was not found"
+					)
+					return False
+				created = [(day, start, end, rule_id) for start, end in parsed[kept:]]
+			_LOGGER.debug(
+				"Setting WEEKLY school time windows for day=%s: rewrite %s, create %s, delete %s (had %s)",
+				day, [(s, e) for _, s, e in updated], [(s, e) for _, s, e, _ in created], deleted,
+				[(row[0], row[3], row[4]) for row in rows],
+			)
+			try:
+				# The app rewrites the kept slot in the same call that adds or
+				# removes its neighbour, and Google refuses the call without it
+				# (and refuses a rewrite that overlaps a slot still to be
+				# removed), so the first kept slot travels with each change and
+				# the other kept slots are rewritten on their own afterwards.
+				anchor = updated[:1]
+				for row in created:
+					if not await self._async_put_weekly_school_time_slots(
+						session, cookie_header, account_id, updated=anchor, created=[row]
+					):
+						return False
+				for slot_id in deleted:
+					if not await self._async_put_weekly_school_time_slots(
+						session, cookie_header, account_id, updated=anchor, deleted=[slot_id]
+					):
+						return False
+				rest = updated if not (created or deleted) else updated[1:]
+				for slot_id, start, end in rest:
+					if not await self._async_put_weekly_school_time_slot(
+						session, cookie_header, account_id, slot_id, start, end
+					):
+						return False
+			finally:
+				self._weekly_slot_cache.pop(account_id, None)
+			_LOGGER.info(
+				f"Successfully set {len(parsed)} weekly school time window(s) for day {day}: "
+				+ ", ".join(f"{s}-{e}" for s, e in windows)
+			)
+			return True
+		except SessionExpiredError:
+			raise
+		except Exception as err:
+			_LOGGER.error(f"Error setting school time windows for day {day}: {err}")
+			return False
+
 	async def async_set_school_time(
 		self,
 		start_time: str,
@@ -3560,35 +3878,14 @@ class FamilyLinkClient:
 					)
 					return False
 				slot_id = row[0]
-				payload = json.dumps([
-					None,
-					account_id,
-					[
-						[None, None, None, [[slot_id, [start_hour, start_min], [end_hour, end_min]]]],
-						None, None, None, [],
-					],
-					None,
-					[1],
-				])
 				_LOGGER.debug(
 					"Setting WEEKLY school time %s-%s for day=%s (slot=%s, was %s-%s)",
 					start_time, end_time, day, slot_id, row[3], row[4],
 				)
-				async with session.post(
-					self._people_url(account_id, "timeLimit:update"),
-					headers={
-						"Content-Type": "application/json+protobuf",
-						"Cookie": cookie_header,
-					},
-					data=payload,
-					params={"$httpMethod": "PUT"},
-				) as response:
-					if response.status != 200:
-						_LOGGER.error(
-							"Failed to set weekly school time (HTTP %s): %s",
-							response.status, await response.text(),
-						)
-						return False
+				if not await self._async_put_weekly_school_time_slot(
+					session, cookie_header, account_id, slot_id, [start_hour, start_min], [end_hour, end_min]
+				):
+					return False
 				self._weekly_slot_cache.pop(account_id, None)
 				_LOGGER.info(f"Successfully set weekly school time {start_time}-{end_time} for day {day}")
 				return True
@@ -4048,6 +4345,54 @@ class FamilyLinkClient:
 			_LOGGER.error(f"Error fetching contact restriction: {err}")
 			raise NetworkError(f"Error fetching contact restriction: {err}") from err
 
+	@staticmethod
+	def _parse_device_batteries(data: Any) -> dict[str, int]:
+		"""Return {device_id: battery percent} from a /people/{id}/devices response.
+
+		Captured live 2026-11-05: [<meta>, [<device>, ...], null, null, <n>], where
+		<device>[0] is the device id and <device>[22] is [<percent>, <state>].
+		A device without a usable reading is left out.
+		"""
+		batteries: dict[str, int] = {}
+		devices = data[1] if isinstance(data, list) and len(data) > 1 else None
+		for device in devices if isinstance(devices, list) else []:
+			if not (isinstance(device, list) and len(device) > 22 and isinstance(device[0], str)):
+				continue
+			battery = device[22]
+			level = battery[0] if isinstance(battery, list) and battery else None
+			if type(level) is int and 0 <= level <= 100:
+				batteries[device[0]] = level
+		return batteries
+
+	async def async_get_device_batteries(self, account_id: str | None = None) -> dict[str, int]:
+		"""Read the battery level of each of the child's devices."""
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+
+		if account_id is None:
+			account_id = await self.async_get_supervised_child_id()
+
+		try:
+			session = await self._get_session()
+			async with session.get(
+				self._people_url(account_id, "devices"),
+				headers={
+					"Content-Type": "application/json+protobuf",
+					"Cookie": self._get_cookie_header(),
+				},
+			) as response:
+				if response.status == 401:
+					_LOGGER.error("✗ 401 Unauthorized - Session expired fetching device batteries")
+					raise SessionExpiredError("Session expired, please re-authenticate")
+				if response.status != 200:
+					raise NetworkError(f"Failed to fetch device batteries: HTTP {response.status}")
+				return self._parse_device_batteries(await response.json())
+
+		except (SessionExpiredError, NetworkError):
+			raise
+		except Exception as err:
+			raise NetworkError(f"Error fetching device batteries: {err}") from err
+
 	async def async_set_contact_restriction(
 		self, restriction_level: int, account_id: str | None = None
 	) -> bool:
@@ -4114,6 +4459,32 @@ class FamilyLinkClient:
 	WEBSITE_ALLOW = "ALLOW"
 	WEBSITE_BLOCK = "BLOCK"
 
+	# The Chrome web filter mode ("Google Chrome and Web" > "Filters"), issue
+	# #211. The app switches it with one POST to settingResources:performAction
+	# (no personId in the path, the child is in the body); setting resource
+	# "124" is the Chrome web filter, the trailing [[1, 3, 4, 5, 6], 1] block is
+	# constant and is the third field, not a second action. Values as the app sends them: "2" = only approved sites (the
+	# allow list), "3" = all sites with Google's explicit-content filter.
+	# websites:listRestrictions reads the mode back under its own names
+	# (WEBSITE_FILTER_READ_NAMES: "blockByDefault" and "safeSites", live 2026-10-27).
+	WEBSITE_FILTER_RESOURCE = "124"
+	WEBSITE_FILTER_APPROVED_ONLY = "approved_only"
+	WEBSITE_FILTER_FILTERED = "filtered"
+	# "1" = all sites, no filter ("allowByDefault"), confirmed live 2026-10-24
+	WEBSITE_FILTER_ALL_SITES = "all_sites"
+	WEBSITE_FILTER_VALUES = {WEBSITE_FILTER_ALL_SITES: "1", WEBSITE_FILTER_APPROVED_ONLY: "2", WEBSITE_FILTER_FILTERED: "3"}
+	WEBSITE_FILTER_READ_NAMES = {
+		"allowByDefault": WEBSITE_FILTER_ALL_SITES,
+		"safeSites": WEBSITE_FILTER_FILTERED,
+		"blockByDefault": WEBSITE_FILTER_APPROVED_ONLY,
+	}
+	WEBSITE_FILTER_WRITE_NAMES = {level: name for name, level in WEBSITE_FILTER_READ_NAMES.items()}
+
+	@classmethod
+	def website_filter_level(cls, read_name: Any) -> str | None:
+		"""The service-level name of a filterLevel read from Google (None if unknown)."""
+		return cls.WEBSITE_FILTER_READ_NAMES.get(read_name) if isinstance(read_name, str) else None
+
 	@staticmethod
 	def _website_lists(data: Any) -> dict[str, Any]:
 		"""{"filter_level", "approved", "blocked"} from a list or update response."""
@@ -4158,6 +4529,43 @@ class FamilyLinkClient:
 		data = await self._website_request("GET", account_id, "websites:listRestrictions")
 		return self._website_lists(data)
 
+	async def async_set_website_filter_level(self, account_id: str, level: str) -> dict[str, Any]:
+		"""Switch the child's Chrome web filter mode (issue #211), then read the lists back.
+
+		``level`` is WEBSITE_FILTER_ALL_SITES, WEBSITE_FILTER_APPROVED_ONLY or
+		WEBSITE_FILTER_FILTERED.
+		Returns the lists as async_get_website_restrictions does, read after
+		the change so ``filter_level`` is what Google now holds.
+		"""
+		if level not in self.WEBSITE_FILTER_VALUES:
+			raise ValueError(f"Unknown web filter level {level!r}")
+		if not self.is_authenticated():
+			raise AuthenticationError("Not authenticated")
+		self._validate_id(account_id, "account_id")
+		session = await self._get_session()
+		# [unused, action_data (repeated: [1, resource_id, value]), constant block].
+		# The body in #211 had one more pair of brackets; Google read the
+		# constant block as a second action and answered 400 (live 2026-10-27).
+		payload = json.dumps([
+			None,
+			[[1, [self.WEBSITE_FILTER_RESOURCE, None, [account_id]], self.WEBSITE_FILTER_VALUES[level]]],
+			[[1, 3, 4, 5, 6], 1],
+		])
+		async with session.post(
+			f"{self.BASE_URL}/people/settingResources:performAction",
+			headers={"Content-Type": "application/json+protobuf", "Cookie": self._get_cookie_header()},
+			data=payload,
+		) as response:
+			if response.status == 401:
+				raise SessionExpiredError("Session expired, please re-authenticate")
+			text = await response.text()
+			if response.status != 200:
+				_LOGGER.error(f"Web filter level change to {level} failed {response.status}: {text[:300]}")
+				raise NetworkError(f"Web filter level change failed: HTTP {response.status}")
+		lists = await self.async_get_website_restrictions(account_id)
+		_LOGGER.info(f"Web filter level set to {level} for {account_id} (Google reads {lists.get('filter_level')!r})")
+		return lists
+
 	async def async_update_website_restrictions(
 		self,
 		account_id: str,
@@ -4187,37 +4595,3 @@ class FamilyLinkClient:
 			f"removed {len(body['removedWebsiteExceptions'])}, {len(result['covered'])} already covered"
 		)
 		return result
-
-	# Chrome filter mode, as the Family Link web app sets it (captured 2026-10):
-	#   POST people/settingResources:performAction with
-	#        [null, [[1, ["124", null, [childId]], mode]], [[1, 3, 4, 5, 6], 1]]
-	# "124" is the Chrome filter setting resource; the child id is in the body,
-	# not the path. The trailing [[1, 3, 4, 5, 6], 1] is sent as the web app
-	# sends it. Confirmed live 2026-10-24 for the three modes, which read back
-	# as filterLevel in websites:listRestrictions: 1 allowByDefault,
-	# 2 blockByDefault, 3 safeSites. A read right after a change can still
-	# give the previous mode.
-	WEB_FILTER_RESOURCE = "124"
-	WEB_FILTER_ALL_SITES = "1"
-	WEB_FILTER_APPROVED_ONLY = "2"
-	WEB_FILTER_BLOCK_EXPLICIT = "3"
-
-	async def async_set_web_filter(self, account_id: str, mode: str) -> None:
-		"""Set the child's Chrome filter mode, one of the WEB_FILTER_* values."""
-		if not self.is_authenticated():
-			raise AuthenticationError("Not authenticated")
-		self._validate_id(account_id, "account_id")
-		session = await self._get_session()
-		body = [None, [[1, [self.WEB_FILTER_RESOURCE, None, [account_id]], mode]], [[1, 3, 4, 5, 6], 1]]
-		async with session.post(
-			f"{self.BASE_URL}/people/settingResources:performAction",
-			headers={"Content-Type": "application/json+protobuf", "Cookie": self._get_cookie_header()},
-			data=json.dumps(body),
-		) as response:
-			if response.status == 401:
-				raise SessionExpiredError("Session expired, please re-authenticate")
-			if response.status != 200:
-				text = await response.text()
-				_LOGGER.error(f"Setting the Chrome filter failed {response.status}: {text[:300]}")
-				raise NetworkError(f"Setting the Chrome filter failed: HTTP {response.status}")
-		_LOGGER.info(f"Chrome filter set to mode {mode} for {account_id}")

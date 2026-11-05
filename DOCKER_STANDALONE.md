@@ -1,6 +1,6 @@
 # Docker Standalone Guide
 
-How to run the Family Link auth service as a standalone Docker container, for **Home Assistant Container** or **Home Assistant Core** (no Supervisor, so no add-on store). The integration side of the setup (install, configuration flow) is covered in [INSTALL.md](INSTALL.md), Route B.
+How to run the Family Link auth service as a standalone Docker container, for **Home Assistant Container** or **Home Assistant Core** (no Supervisor, so no app store). The integration side of the setup (install, configuration flow) is covered in [INSTALL.md](INSTALL.md), Route B.
 
 > **Warning**: this project relies on unofficial, reverse-engineered Google endpoints. There is no official API: Google can change or break it at any time. Use at your own risk.
 
@@ -32,10 +32,11 @@ services:
       - LOG_LEVEL=info
       - AUTH_TIMEOUT=300
       - SESSION_DURATION=86400
-      - VNC_PASSWORD=familylink
+      # Optional, up to 8 characters; unset: a random one is printed in the log
+      # - VNC_PASSWORD=choose-one
       - LANGUAGE=en-US
       - TIMEZONE=Europe/Paris
-      # Recommended: protect /api/cookies (see "API key" below)
+      # Optional: unset, a key is generated and printed in the log (see "API key" below)
       # - API_KEY=change-me
     dns:
       - 8.8.8.8
@@ -67,7 +68,6 @@ docker run -d \
   -e LOG_LEVEL=info \
   -e AUTH_TIMEOUT=300 \
   -e SESSION_DURATION=86400 \
-  -e VNC_PASSWORD=familylink \
   -e LANGUAGE=en-US \
   -e TIMEZONE=Europe/Paris \
   --dns 8.8.8.8 \
@@ -76,7 +76,7 @@ docker run -d \
   ghcr.io/noiwid/familylink-auth:standalone
 ```
 
-Add `-e API_KEY=<your-key>` to protect the cookie endpoint (see [API key](#api-key-securing-the-cookie-endpoint)).
+Add `-e API_KEY=<your-key>` to choose the cookie endpoint key yourself; otherwise one is generated (see [API key](#api-key-securing-the-cookie-endpoint)).
 
 Both `linux/amd64` and `linux/arm64` are supported; Docker pulls the right image automatically.
 
@@ -89,17 +89,17 @@ Both `linux/amd64` and `linux/arm64` are supported; Docker pulls the right image
 | `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warning`, `error`) |
 | `AUTH_TIMEOUT` | `300` | Seconds you have to finish the Google login before the session times out |
 | `SESSION_DURATION` | `86400` | No effect, kept for backward compatibility (cookie lifetime is decided by Google) |
-| `VNC_PASSWORD` | `familylink` | Password for the noVNC web interface. VNC authentication uses at most 8 characters: longer values are truncated to the first 8, with a warning in the log. Empty disables the password |
+| `VNC_PASSWORD` | unset | Password for the noVNC web interface. Unset, empty or the old default `familylink`: a random password is generated at every start and printed in the container log. VNC authentication uses at most 8 characters: longer values are truncated to the first 8, with a warning in the log. The password is always required (image 1.9.2 or later; 1.9.0 and 1.9.1 printed it without enforcing it) |
 | `LANGUAGE` | `en-US` | Browser locale for the Google login pages |
 | `TIMEZONE` | `Europe/Paris` | Container and browser timezone |
-| `API_KEY` | unset | Key protecting `GET /api/cookies`. When unset, the endpoint is **open** in standalone mode (a warning is logged at startup). See [API key](#api-key-securing-the-cookie-endpoint) |
+| `API_KEY` | unset | Key protecting `GET /api/cookies`. When unset, a key is generated once, kept in `./data/api_key` and printed in the container log at every start (image 1.9.5 or later; earlier images left the endpoint open). See [API key](#api-key-securing-the-cookie-endpoint) |
 | `FAMILYLINK_VNC_BACKEND` | `auto` | Display backend (image v1.8.0+): `auto` (TigerVNC, with automatic fallback to Xvfb + x11vnc), `tigervnc`, or `x11vnc` |
 
 ### Volumes
 
 | Host path | Container path | Contents |
 |---|---|---|
-| `./data` | `/share/familylink` | `cookies.enc` (Fernet-encrypted Google session cookies) and `.key` (the encryption key) |
+| `./data` | `/share/familylink` | `cookies.enc` (Fernet-encrypted Google session cookies), `.key` (the encryption key) and `api_key` (the generated cookie endpoint key) |
 
 Keep this volume across container recreations so you do not have to log in to Google again after every update. Treat the directory as sensitive: together, the two files are a full Google session.
 
@@ -132,9 +132,9 @@ To re-authenticate after the session expires, repeat the same steps; the integra
 
 `GET /api/cookies` returns your full Google session, so anyone who can reach port 8099 could read it.
 
-- **In standalone mode the endpoint is open by default.** The container and Home Assistant do not share a volume, so an auto-generated key could not be handed over automatically; the container logs a warning at startup instead. (On Home Assistant OS add-on installs, a key is auto-generated and shared through `/share/familylink/api_key`: nothing to configure there.)
-- To lock it down, set the `API_KEY` environment variable (uncomment the line in the compose file) and recreate the container.
-- Then enter `http://<docker-host>:8099` and the key in the configuration flow's separate **Manual URL** fields (see [INSTALL.md](INSTALL.md#configuration-flow)). The integration sends the key as an `X-API-Key` header. The auth server continues accepting legacy query keys temporarily for older integration versions.
+- **The endpoint always needs a key** (image 1.9.5 or later). Without `API_KEY`, the container generates one at first start, keeps it in `./data/api_key` and prints it in its log: `docker logs familylink-auth | grep "Cookie API key"`. To choose it yourself, set `API_KEY` (uncomment the line in the compose file) and recreate the container. (On Home Assistant OS add-on installs, the generated key is shared through `/share/familylink/api_key`: nothing to configure there.)
+- **Upgrading from an image that left the endpoint open:** the integration then reports an invalid API key. Open the integration's **Reconfigure** and enter the key from the log.
+- Enter `http://<docker-host>:8099` and the key in the configuration flow's separate **Manual URL** fields (see [INSTALL.md](INSTALL.md#configuration-flow)). The integration sends the key as an `X-API-Key` header. The auth server continues accepting legacy query keys temporarily for older integration versions.
 - Treat the Manual URL as a base URL. If a trusted reverse proxy exposes the service under a path such as `https://home.example/familylink-auth`, include that prefix; the integration preserves it when requesting `/api/health` and `/api/cookies`.
 - API key or not, keep port 8099 inside your trusted network.
 
@@ -191,7 +191,7 @@ Your Google login survives updates as long as the `./data` volume is kept. Versi
 
 - Ensure the container is running: `docker ps | grep familylink`.
 - Check the health endpoint: `curl http://<docker-host>:8099/api/health`.
-- An HTTP 403 on the cookies endpoint means `API_KEY` is set but the integration's separate API-key field is missing or incorrect.
+- An HTTP 403 on the cookies endpoint means the integration's separate API-key field is missing or does not match the container's key (`API_KEY`, or the one printed in the log).
 - Verify Home Assistant can reach the Docker host on port `8099`.
 
 ### DNS issues (Pi-hole, AdGuard, etc.)
@@ -208,4 +208,4 @@ Your Google login survives updates as long as the `./data` volume is kept. Versi
 | `latest` | Latest add-on image (for HA OS/Supervised only) |
 | `<version>` | Add-on image as of repository release `v<version>` |
 
-Versioned tags follow the repository's release tag (the integration version), not the add-on version shown in the add-on store.
+Versioned tags follow the repository's release tag (the integration version), not the add-on version shown in the app store.

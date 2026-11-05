@@ -1,7 +1,7 @@
 # <img src="https://brands.home-assistant.io/familylink/icon.png" alt="Google Family Link" width="30"> Google Family Link for Home Assistant
 
 [![GitHub Release][releases-shield]][releases]
-[![HACS][hacsbadge]][hacs]
+[![Marketplace][marketplacebadge]][marketplace]
 [![License][license-shield]][license]
 
 Monitor and control Google Family Link from Home Assistant: screen time, device lock, bedtime and school time schedules, daily limits, communication restrictions, app blocking, time bonuses, and optional GPS location. Multiple children and multiple devices are supported out of the box.
@@ -23,7 +23,8 @@ The endpoints and payload shapes the integration relies on are documented in [GO
 | Area | What you can do |
 |------|-----------------|
 | Device control | Lock and unlock devices, ring a device to locate it, see exactly why a device is currently blocked |
-| Time management | Toggle bedtime, school time and daily limits, edit the weekly bedtime schedule or post a today-only override, add 15/30/60 minute bonuses |
+| Time management | Toggle bedtime, school time and daily limits, edit the weekly bedtime and school time schedules (school day breaks included) or post a today-only override, add 15/30/60 minute bonuses |
+| Web | Read and edit the child's Chrome site lists, sync the blocked list with a published list, switch the web filter between the approved sites only and Google's filter |
 | Screen time monitoring | Daily screen time per child, remaining time per device (bonuses included), top 10 apps, per-app usage breakdown |
 | App management | Block or unblock apps, per-app daily limits (blocked, limited, unrestricted or "unlimited time"), one-call school mode that blocks everything except an essentials whitelist |
 | Location (opt-in) | GPS device tracker with saved places and address, battery level of the source device, on-demand refresh |
@@ -42,13 +43,13 @@ The auth service must be running before you configure the integration.
      [![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fnoiwid%2FHAFamilyLink)
    - *Home Assistant Core / Container (no Supervisor):* run the standalone auth container instead. See [DOCKER_STANDALONE.md](DOCKER_STANDALONE.md).
 
-2. **Install the integration** via HACS (recommended) or manually.
+2. **Install the integration** from the Marketplace (recommended) or manually.
 
-   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=noiwid&repository=HAFamilyLink&category=integration)
+   [![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=noiwid&repository=HAFamilyLink&category=integration)
 
 3. **Add it:** Settings > Devices & Services > Add Integration > search for "Family Link". Auto-detect finds the add-on by itself; standalone users choose manual URL configuration and enter the container's URL.
 
-The full walkthrough (prerequisites, both auth routes, configuration options, re-authentication) is in **[INSTALL.md](INSTALL.md)**.
+The full walkthrough (prerequisites, both auth routes, configuration options, re-authentication) is in **[INSTALL.md](https://github.com/noiwid/HAFamilyLink/blob/main/INSTALL.md)**.
 
 ## Entities
 
@@ -64,13 +65,13 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `event.<child>_app_usage` | Child | Fires `usage_grew` for each app and device whose usage grew since the last refresh: `package`, `app`, `device`, `grew_minutes`, `today_minutes`, `reported_at`. See [App usage event](#app-usage-event) |
 | `sensor.<child>_device_count` | Child | Number of supervised devices |
 | `sensor.<child>_child_info` | Child | Profile: name, email, birthday, age band |
-| `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location |
+| `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location (see `sensor.<device>_battery_level` for each device) |
 | `device_tracker.<child>_family_link` | Child (GPS opt-in) | GPS location: zone, saved place, address, battery |
 | `switch.<child>_bedtime`, `_school_time`, `_daily_limit` | Child | Toggle restrictions. State reflects today's effective setting (weekly rule merged with same-day overrides); the school time switch also exposes `school_time_enabled_weekly` and `school_time_scheduled_today` attributes |
 | `switch.<child>_unlimited_apps_during_downtime` | Child | Family Link's "Allow apps with unlimited time during downtime": ON keeps the apps set to unlimited time usable during downtime, OFF blocks them too. Applies to all of the child's devices. Unknown until the setting is first changed, in the app or here: Google reports nothing for a child where it was never touched |
 | `sensor.<child>_blocked_sites`, `_approved_sites` | Child | Chrome site lists (Family Link "Google Chrome and Web"): count, the sites and the Chrome filter level in attributes; read every 15 minutes and right after a change made from Home Assistant |
-| `select.<child>_web_filter` | Child | The Chrome filter mode: allow all sites, try to block explicit sites, or only allow approved sites. With the school time sensors, an automation can open the web for homework and go back to approved sites after |
 | `select.<child>_allowed_calls_texts` | Child | Choose who can call and text the child: anyone, only contacts you add, or contacts you add and limited groups |
+| `select.<child>_web_filter` | Child | Chrome web filter mode: all sites, only the approved sites, or every site with Google's explicit-content filter. With the school time sensors, an automation can open the web for homework and go back to approved sites after |
 | `switch.<child>_strict_mode` | Child | Strict mode on or off for this child (see below). Attributes: rules in force, last corrective action, count |
 | `number.<child>_<weekday>_limit` | Child | Screen time quota of that weekday in minutes, as the weekly limits screen of the app shows it (the weekly value, or today's override when Google applies one; see the `source` and `applied_override` attributes). Setting it writes the weekly quota of that weekday, as the weekly limits screen of the app does; today's entity also posts today's override on every device so the change applies at once |
 | `time.<child>_<weekday>_bedtime_start`, `_bedtime_end` | Child | Start and end of that weekday's bedtime in the weekly schedule. Setting one rewrites the slot (the other bound is kept) |
@@ -81,6 +82,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<device>_active_bonus` | Device | Active bonus minutes (0 when none) |
 | `sensor.<device>_daily_screen_time` | Device | Today's screen time on this device in minutes, per-app breakdown in attributes; unknown while the data is missing |
 | `sensor.<device>_last_activity` | Device (diagnostic) | When Google last heard from the device: a check-in, not proof the child used it |
+| `sensor.<device>_battery_level` | Device | Battery of this device in percent, no GPS needed; unavailable while Google reports no level |
 | `binary_sensor.<device>_bedtime_active`, `_school_time_active` | Device | Currently inside the bedtime / school time window |
 | `binary_sensor.<device>_daily_limit_reached` | Device | Daily limit used up (ignores bonus time) |
 | `switch.<device>` | Device | Device usability: ON means usable, OFF means manually locked, bedtime active, or daily limit reached. An active bonus overrides bedtime, school time and daily-limit restrictions, but not a manual lock. The `restriction_reason` attribute tells you why, and `lock_override_code` gives Google's raw override on the device (1 lock, 7 lock with the allowed apps reachable, 4 unlock, empty when none). A lock from Home Assistant keeps the apps marked "always allowed" in Family Link reachable through an "Available apps" button on the lock screen; the *Device lock keeps the always allowed apps reachable* option, on by default, switches that off for a plain lock |
@@ -144,7 +146,7 @@ Family Link blocks an app for the child, not for one device: while it is blocked
 
 > **Warning.** While strict mode is on, manage Family Link from Home Assistant only. Changes made in the Family Link app or on the Google interface are undone at the next refresh, whoever made them. Turn the child's Strict Mode switch off to hand control back to Google. With the option off (the default), nothing changes: the integration behaves exactly as before, the switch is just there, off.
 
-> **The child's Home Assistant account.** Strict mode closes the Google side, not the Home Assistant side. A child who has a Home Assistant user can find these entities and give themselves a bonus or switch a restriction off. The `familylink.*` actions refuse a non-admin user unless the call targets an entity that user may control (see [Who may call a service](SERVICES.md#who-may-call-a-service)), so give the child a non-admin user, keep the Family Link entities out of the dashboards they see, and consider [ha-rbac](https://github.com/FezVrasta/ha-rbac) to deny those entities per user, which then covers the actions as well.
+> **The child's Home Assistant account.** Strict mode closes the Google side, not the Home Assistant side. A child who has a Home Assistant user can find these entities and give themselves a bonus or switch a restriction off. The `familylink.*` actions refuse a non-admin user unless the call targets an entity that user may control (see [Who may call a service](SERVICES.md#who-may-call-a-service)), so give the child a non-admin user and tick the parents in the integration option **Users allowed to control Family Link**: the child is then refused on every Family Link button, switch, limit, time and select, and on the actions (details in [Who may call a service](SERVICES.md#who-may-call-a-service)).
 
 
 | Rule | What is reverted |
@@ -173,10 +175,11 @@ Enable it with the **Strict mode** option of the integration (default for every 
 | `familylink.enable_bedtime` / `familylink.disable_bedtime` | Toggle bedtime, effective tonight (weekly toggle plus a same-day override) |
 | `familylink.set_bedtime` | Edit the recurring weekly bedtime for a day, or post a today-only override (`scope: today`) |
 | `familylink.set_downtime_unlimited_apps` | Allow or block the apps with unlimited time during downtime (`allow: true` / `false`), like the child's switch |
-| `familylink.set_school_time` | Edit the recurring weekly school time (start and finish) for a day, or post a today-only window (`scope: today`) |
+| `familylink.set_school_time` | Edit the recurring weekly school time (start and finish) for a day, set, add or remove the break of a day (`windows`, one or two), switch a day off or on (`enabled`), or post a today-only window (`scope: today`) |
 | `familylink.enable_school_time` / `familylink.disable_school_time` | Toggle school time |
 | `familylink.get_sites`, `familylink.block_site`, `familylink.allow_site`, `familylink.remove_site` | Read and edit the child's Chrome site lists (approved and blocked sites, wildcards allowed) |
 | `familylink.sync_site_list` | Keep the blocked sites in step with a published list of domains (https, administrators only); removes only what the list added, `stop: true` takes it all back |
+| `familylink.set_filter_level` | Switch the Chrome web filter between all sites, the approved sites only and every site with Google's filter (`all_sites` / `approved_only` / `filtered`); also `select.<child>_web_filter` |
 | `familylink.refresh_location` | Force a fresh GPS fix (uses more battery than the regular polling) |
 | `familylink.ring_device` | Make a device ring so it can be found |
 | `familylink.set_update_interval` | Change the polling interval until the next restart (e.g. slower at night) |
@@ -224,5 +227,5 @@ This is an unofficial integration, not affiliated with, endorsed by, or connecte
 [releases]: https://github.com/noiwid/HAFamilyLink/releases
 [license-shield]: https://img.shields.io/github/license/noiwid/HAFamilyLink.svg?style=for-the-badge
 [license]: LICENSE
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
-[hacs]: https://github.com/hacs/integration
+[marketplacebadge]: https://img.shields.io/badge/Marketplace-Default-41BDF5.svg?style=for-the-badge
+[marketplace]: https://my.home-assistant.io/redirect/hacs_repository/?owner=noiwid&repository=HAFamilyLink&category=integration

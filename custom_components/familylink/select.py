@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .client.api import FamilyLinkClient
 from .const import DOMAIN, LOGGER_NAME
+from .permissions import async_check_entity_action
 from .coordinator import FamilyLinkDataUpdateCoordinator
 from .devices import ensure_child_device
 
@@ -33,23 +34,13 @@ OPTION_TO_LEVEL = {
 }
 LEVEL_TO_OPTION = {0: OPTION_ANYONE, **{level: option for option, level in OPTION_TO_LEVEL.items()}}
 
-# Chrome filter modes, worded as in the Family Link app, and the filterLevel
-# names websites:listRestrictions gives them back with
-OPTION_ALL_SITES = "Allow all sites"
-OPTION_BLOCK_EXPLICIT = "Try to block explicit sites"
-OPTION_APPROVED_ONLY = "Only allow approved sites"
-
-WEB_FILTER_OPTION_TO_MODE = {
-    OPTION_ALL_SITES: FamilyLinkClient.WEB_FILTER_ALL_SITES,
-    OPTION_BLOCK_EXPLICIT: FamilyLinkClient.WEB_FILTER_BLOCK_EXPLICIT,
-    OPTION_APPROVED_ONLY: FamilyLinkClient.WEB_FILTER_APPROVED_ONLY,
+# Chrome web filter modes, as the app names them ("Google Chrome and Web" > "Filters"), issue #211
+WEB_FILTER_OPTIONS = {
+    "Allow all sites": FamilyLinkClient.WEBSITE_FILTER_ALL_SITES,
+    "Only approved sites": FamilyLinkClient.WEBSITE_FILTER_APPROVED_ONLY,
+    "Try to block explicit sites": FamilyLinkClient.WEBSITE_FILTER_FILTERED,
 }
-FILTER_LEVEL_TO_OPTION = {
-    "allowByDefault": OPTION_ALL_SITES,
-    "safeSites": OPTION_BLOCK_EXPLICIT,
-    "blockByDefault": OPTION_APPROVED_ONLY,
-}
-OPTION_TO_FILTER_LEVEL = {option: level for level, option in FILTER_LEVEL_TO_OPTION.items()}
+WEB_FILTER_LEVEL_TO_OPTION = {level: option for option, level in WEB_FILTER_OPTIONS.items()}
 
 
 async def async_setup_entry(
@@ -70,16 +61,93 @@ async def async_setup_entry(
     entities: list[SelectEntity] = []
     for child_data in coordinator.data.get("children_data", []):
         entities.append(
-            FamilyLinkContactRestrictionSelect(
-                coordinator, child_data["child_id"], child_data["child_name"]
-            )
+            FamilyLinkContactRestrictionSelect(coordinator, child_data["child_id"], child_data["child_name"])
         )
-        entities.append(
-            FamilyLinkWebFilterSelect(
-                coordinator, child_data["child_id"], child_data["child_name"]
-            )
-        )
+        entities.append(FamilyLinkWebFilterSelect(coordinator, child_data["child_id"], child_data["child_name"]))
     async_add_entities(entities)
+
+
+class FamilyLinkWebFilterSelect(CoordinatorEntity, SelectEntity):
+    """The child's Chrome web filter mode: all sites, only approved sites, or every site with Google's filter (#211).
+
+    Reads the filter level the coordinator fetched with the site lists, so it
+    shares their refresh interval and cache; selecting an option writes it and
+    reads the lists back at once. Google can still answer that read with the
+    previous mode, so the mode just set is shown until the next read.
+    """
+
+    _attr_options = list(WEB_FILTER_OPTIONS)
+    _attr_icon = "mdi:web-check"
+
+    def __init__(
+        self,
+        coordinator: FamilyLinkDataUpdateCoordinator,
+        child_id: str,
+        child_name: str,
+    ) -> None:
+        """Initialize the select entity."""
+        super().__init__(coordinator)
+        self._child_id = child_id
+        self._child_name = child_name
+        self._attr_has_entity_name = True
+        self._attr_name = "Web Filter"
+        self._attr_unique_id = f"{DOMAIN}_{child_id}_web_filter"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information for this child."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._child_id)},
+            name=f"{self._child_name} (Family Link)",
+            manufacturer="Google",
+            model="Family Link Account",
+        )
+
+    def _websites(self) -> dict[str, Any] | None:
+        if not self.coordinator.data or "children_data" not in self.coordinator.data:
+            return None
+        for child_data in self.coordinator.data["children_data"]:
+            if child_data["child_id"] == self._child_id:
+                return child_data.get("websites")
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Available once the site lists have been read."""
+        return self.coordinator.last_update_success and self._websites() is not None
+
+    @property
+    def current_option(self) -> str | None:
+        """The option matching the filter level last read (None for a mode not known here)."""
+        websites = self._websites() or {}
+        level = FamilyLinkClient.website_filter_level(websites.get("filter_level"))
+        return WEB_FILTER_LEVEL_TO_OPTION.get(level) if level else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the child ids so services can target this child, and Google's own name of the mode."""
+        websites = self._websites() or {}
+        return {
+            "child_id": self._child_id,
+            "child_name": self._child_name,
+            "filter_level": websites.get("filter_level"),
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the web filter mode."""
+        await async_check_entity_action(self)
+        level = WEB_FILTER_OPTIONS[option]
+        try:
+            lists = await self.coordinator.client.async_set_website_filter_level(self._child_id, level)
+        except Exception as err:
+            raise HomeAssistantError(f"Setting the web filter for {self._child_name} failed: {err}") from err
+        # A read right after a change can still give the previous mode: show
+        # the mode just set until the next read of the lists
+        if FamilyLinkClient.website_filter_level(lists.get("filter_level")) != level:
+            lists = {**lists, "filter_level": FamilyLinkClient.WEBSITE_FILTER_WRITE_NAMES[level]}
+        self.coordinator.store_websites(self._child_id, lists)
+        _LOGGER.info(f"Set the web filter to '{option}' for {self._child_name}")
+        await self.coordinator.async_request_refresh()
 
 
 class FamilyLinkContactRestrictionSelect(CoordinatorEntity, SelectEntity):
@@ -156,79 +224,13 @@ class FamilyLinkContactRestrictionSelect(CoordinatorEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Change who can call and text the child."""
+        await async_check_entity_action(self)
         level = OPTION_TO_LEVEL[option]
         success = await self.coordinator.client.async_set_contact_restriction(
             level, account_id=self._child_id
         )
         if not success:
-            _LOGGER.error(
-                f"Failed to set allowed calls and texts to '{option}' for {self._child_name}"
-            )
-            return
+            raise HomeAssistantError(f"Failed to set allowed calls and texts to '{option}' for {self._child_name}")
         _LOGGER.info(f"Set allowed calls and texts to '{option}' for {self._child_name}")
         await self.coordinator.async_request_refresh()
 
-
-class FamilyLinkWebFilterSelect(FamilyLinkContactRestrictionSelect):
-    """The child's Chrome filter mode (Family Link "Google Chrome and Web").
-
-    The mode comes with the site lists the coordinator reads every
-    WEBSITES_REFRESH seconds, so the entity is unavailable until they have
-    been read (an account without Chrome never has them). A change made here
-    shows at once, without a read: Google can still return the previous mode
-    for a moment.
-    """
-
-    _attr_has_entity_name = True
-    _attr_options = list(WEB_FILTER_OPTION_TO_MODE)
-    _attr_icon = "mdi:web"
-
-    def __init__(
-        self,
-        coordinator: FamilyLinkDataUpdateCoordinator,
-        child_id: str,
-        child_name: str,
-    ) -> None:
-        """Initialize the select entity."""
-        super().__init__(coordinator, child_id, child_name)
-        self._attr_name = "Web Filter"
-        self._attr_unique_id = f"{DOMAIN}_{child_id}_web_filter"
-
-    def _websites(self) -> dict[str, Any] | None:
-        child_data = self._get_child_data()
-        return child_data.get("websites") if child_data else None
-
-    @property
-    def available(self) -> bool:
-        """Available once the site lists have been read."""
-        return self.coordinator.last_update_success and self._websites() is not None
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the option matching the filter level last read."""
-        level = (self._websites() or {}).get("filter_level")
-        option = FILTER_LEVEL_TO_OPTION.get(level)
-        if level is not None and option is None:
-            _LOGGER.debug(f"Unknown Chrome filter level {level} for {self._child_name}")
-        return option
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """The child ids and the filter level as Google names it."""
-        return {
-            "child_id": self._child_id,
-            "child_name": self._child_name,
-            "filter_level": (self._websites() or {}).get("filter_level"),
-        }
-
-    async def async_select_option(self, option: str) -> None:
-        """Change the Chrome filter mode."""
-        try:
-            await self.coordinator.client.async_set_web_filter(self._child_id, WEB_FILTER_OPTION_TO_MODE[option])
-        except Exception as err:
-            raise HomeAssistantError(f"Setting the web filter for {self._child_name} failed: {err}") from err
-        _LOGGER.info(f"Set the web filter to '{option}' for {self._child_name}")
-        websites = self._websites()
-        if websites is not None:
-            self.coordinator.store_websites(self._child_id, {**websites, "filter_level": OPTION_TO_FILTER_LEVEL[option]})
-        await self.coordinator.async_request_refresh()

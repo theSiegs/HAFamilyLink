@@ -14,7 +14,8 @@
 					"app_usage_per_child": "App usage sensors per child",
 					"app_usage_per_device": "App usage sensors per TV or watch",
 					"app_usage_pinned": "Apps that always get a usage sensor",
-					"app_usage_excluded": "Apps that never get a usage sensor"
+					"app_usage_excluded": "Apps that never get a usage sensor",
+					"allowed_users": "Users allowed to control Family Link"
 				},
 				"data_description": {
 					"update_interval": "How often to fetch data from Google (30-3600 seconds)",
@@ -25,7 +26,8 @@
 					"app_usage_per_child": "How many of the apps a child used most over the last 30 days get a sensor of the minutes used today (for a usage-by-hour graph). 0 for none.",
 					"app_usage_per_device": "The same for each device that takes no time limits, such as a Google TV or a watch, counting only the use on that device. 0 for none.",
 					"app_usage_pinned": "Package names (for example com.google.android.youtube) given a sensor for every child, whatever their use.",
-					"app_usage_excluded": "Package names left out of the ranking. Launchers and system screens are always left out. A sensor already added stays: disable it to drop it."
+					"app_usage_excluded": "Package names left out of the ranking. Launchers and system screens are always left out. A sensor already added stays: disable it to drop it.",
+					"allowed_users": "Leave empty to let every Home Assistant user use the Family Link buttons, switches and settings (the default). Once you tick users here, only they and the administrators can: a child's non-administrator account is refused on every Family Link button, switch, limit, time and select, and on the familylink.* actions. Automations and scripts started by Home Assistant itself are not affected. Give the child a non-administrator account: an administrator can change this option."
 				}
 			}
 		}

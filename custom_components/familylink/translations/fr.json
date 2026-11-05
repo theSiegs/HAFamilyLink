@@ -14,7 +14,8 @@
 					"app_usage_per_child": "Capteurs d'utilisation d'app par enfant",
 					"app_usage_per_device": "Capteurs d'utilisation d'app par TV ou montre",
 					"app_usage_pinned": "Apps qui ont toujours un capteur d'utilisation",
-					"app_usage_excluded": "Apps qui n'ont jamais de capteur d'utilisation"
+					"app_usage_excluded": "Apps qui n'ont jamais de capteur d'utilisation",
+					"allowed_users": "Utilisateurs autorisés à piloter Family Link"
 				},
 				"data_description": {
 					"update_interval": "Fréquence de récupération des données depuis Google (30-3600 secondes)",
@@ -25,7 +26,8 @@
 					"app_usage_per_child": "Combien des apps les plus utilisées par un enfant sur les 30 derniers jours ont un capteur des minutes utilisées aujourd'hui (pour un graphique d'utilisation par heure). 0 pour aucun.",
 					"app_usage_per_device": "Pareil pour chaque appareil sans limites de temps, comme une Google TV ou une montre, en ne comptant que l'utilisation sur cet appareil. 0 pour aucun.",
 					"app_usage_pinned": "Noms de paquet (par exemple com.google.android.youtube) qui ont un capteur pour chaque enfant, quelle que soit leur utilisation.",
-					"app_usage_excluded": "Noms de paquet exclus du classement. Les launchers et écrans système sont toujours exclus. Un capteur déjà ajouté reste : désactivez-le pour le retirer."
+					"app_usage_excluded": "Noms de paquet exclus du classement. Les launchers et écrans système sont toujours exclus. Un capteur déjà ajouté reste : désactivez-le pour le retirer.",
+					"allowed_users": "Laisser vide pour que tous les utilisateurs de Home Assistant puissent utiliser les boutons, interrupteurs et réglages Family Link (par défaut). Dès que des utilisateurs sont cochés, seuls eux et les administrateurs le peuvent : le compte non administrateur d'un enfant est refusé sur chaque bouton, interrupteur, limite, horaire et liste Family Link, et sur les actions familylink.*. Les automatisations et les scripts lancés par Home Assistant lui-même ne sont pas concernés. Donnez à l'enfant un compte non administrateur : un administrateur peut modifier cette option."
 				}
 			}
 		}

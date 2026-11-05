@@ -20,15 +20,15 @@ Both routes then continue with the same [integration install](#install-the-integ
 ## Prerequisites
 
 - A Google account with Family Link configured and at least one supervised child.
-- Route A: a Home Assistant installation with the add-on store (OS or Supervised).
+- Route A: a Home Assistant installation with the app store (OS or Supervised). Home Assistant's menus now call add-ons *apps*.
 - Route B: Docker (ideally with Docker Compose) on any machine Home Assistant can reach.
-- HACS (optional but recommended) for easy install and updates of the integration.
+- The Marketplace (recommended) for easy install and updates of the integration. Before Home Assistant 2026.11 it is a separate install called HACS.
 
 ## Route A: Home Assistant OS or Supervised
 
 [![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fnoiwid%2FHAFamilyLink)
 
-1. Go to **Settings > Add-ons > Add-on Store**, open the three-dot menu, choose **Repositories**, and add `https://github.com/noiwid/HAFamilyLink`.
+1. Go to **Settings > Apps > Install app**, open the three-dot menu, choose **Repositories**, and add `https://github.com/noiwid/HAFamilyLink`.
 2. Install **Google Family Link Auth**. The image is built locally, so the install takes several minutes.
 3. Start the add-on. Enabling **Start on boot** and **Watchdog** is recommended.
 4. Log in to Google through the add-on: click **Open Web UI** (port 8099), click **Start Authentication**, then open the noVNC page (port 6080) and finish the Google login and 2FA in the browser window it shows. The full walkthrough, the options reference, and add-on troubleshooting are in the [add-on documentation](familylink-playwright/DOCS.md).
@@ -38,24 +38,22 @@ Both routes then continue with the same [integration install](#install-the-integ
 
 1. Run the standalone auth container: [DOCKER_STANDALONE.md](DOCKER_STANDALONE.md) covers the Docker Compose file, environment variables, volumes, ports, and the `API_KEY` protection.
 2. Authenticate through its web UI (`http://<docker-host>:8099`), using the same two-port flow as the add-on (start the authentication on port 8099, finish the Google login via noVNC on port 6080).
-3. Note the URL you will give the integration: `http://<docker-host>:8099`. If you set the container's `API_KEY` environment variable, enter its value in the integration's separate masked API-key field.
+3. Note the URL you will give the integration: `http://<docker-host>:8099`. Enter the container's key in the integration's separate masked API-key field: the `API_KEY` environment variable if you set one, otherwise the key printed in the container log (`docker logs familylink-auth | grep "Cookie API key"`).
 4. Continue with [Install the integration](#install-the-integration). In the configuration flow, choose **Manual URL configuration (Docker standalone)** and enter that URL.
 
 ## Install the integration
 
-### Via HACS (recommended)
+### Via the Marketplace (recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=noiwid&repository=HAFamilyLink&category=integration)
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=noiwid&repository=HAFamilyLink&category=integration)
 
-1. In HACS, open the three-dot menu and choose **Custom repositories**.
-2. Add repository `https://github.com/noiwid/HAFamilyLink` with category **Integration**.
-3. Search for **Google Family Link** and download the latest version.
-4. Restart Home Assistant.
+1. Go to **Settings > Marketplace > Browse**, search for **Google Family Link** and install it.
+2. Restart Home Assistant.
 
 ### Manual
 
 1. Download `familylink.zip` from the [latest release](https://github.com/noiwid/HAFamilyLink/releases), or copy the `custom_components/familylink` folder from the repository.
-2. Extract or copy it into your Home Assistant `config/custom_components/` directory, so that `config/custom_components/familylink/manifest.json` exists. Copy the folder in full: it contains subpackages (`auth/`, `client/`, `translations/`, `utils/`) and non-Python files (`services.yaml`, `strings.json`) that the integration needs; a partial copy will not load.
+2. Extract the zip into a new `config/custom_components/familylink/` folder (its files are at the root of the zip), or copy the repository folder to that place, so that `config/custom_components/familylink/manifest.json` exists. Copy the folder in full: it contains subpackages (`auth/`, `client/`, `translations/`, `utils/`) and non-Python files (`services.yaml`, `strings.json`) that the integration needs; a partial copy will not load.
 3. Restart Home Assistant.
 
 ## Configuration flow
@@ -75,7 +73,7 @@ If auto-detect finds nothing, the flow falls back to the manual URL form.
 
 ### Step 2 (manual URL only): authentication server URL and API key
 
-Enter the auth server URL, for example `http://192.168.1.100:8099`. If the standalone container has `API_KEY` configured, enter that value in the separate masked API-key field; otherwise leave the field empty.
+Enter the auth server URL, for example `http://192.168.1.100:8099`. Enter the standalone container's key in the separate masked API-key field: its `API_KEY` value, or the key printed in its log.
 
 Existing version-1 entries containing a query key are migrated automatically. The stored URL and unique ID become key-free, and diagnostics redact the separate key. Home Assistant config-entry storage and backups still contain the credential, so continue treating them as sensitive.
 
@@ -122,7 +120,7 @@ Auth-service issues (noVNC not connecting, black screen, login timeout, VNC pass
 
 ### "The server requires an API key" (HTTP 403)
 
-- Route B: enter the value of the container's `API_KEY` environment variable in the separate API-key field. Leave it blank only when `API_KEY` is not configured.
+- Route B: enter the container's key in the separate API-key field: its `API_KEY` value, or the key printed in its log (container image 1.9.5 or later always requires one).
 - Route A: the key is read automatically from `/share/familylink/api_key`; a 403 usually means the URL was entered manually without the key. Prefer auto-detect on Route A.
 
 ### "No cookies found"
@@ -139,8 +137,8 @@ Auth-service issues (noVNC not connecting, black screen, login timeout, VNC pass
 ## Uninstalling
 
 1. **Settings > Devices & Services > Google Family Link**, three-dot menu, **Delete**.
-2. Remove the integration files: via HACS (**Remove**) or by deleting `config/custom_components/familylink/`, then restart Home Assistant.
-3. Route A: uninstall the add-on and optionally remove the repository from the add-on store. Route B: stop and remove the container (`docker compose down`).
+2. Remove the integration files: from the Marketplace or by deleting `config/custom_components/familylink/`, then restart Home Assistant.
+3. Route A: uninstall the add-on and optionally remove the repository from the app store. Route B: stop and remove the container (`docker compose down`).
 4. Optionally delete the stored cookies: `/share/familylink/` (Route A) or the container's `./data` directory (Route B).
 
 ## Getting help

@@ -16,13 +16,104 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **App usage event** - `event.<child>_app_usage` fires `usage_grew` for each app and device whose usage grew since the last refresh, with the app, the device, how much it grew, its total today and when Google received it. Google has no session times, so this is what was measured between refreshes, 5 to 20 minutes after the use.
 - **Device last activity** - `sensor.<device>_last_activity` (diagnostic): when Google last heard from the device. A check-in, not proof the child used it.
 - **Blueprint: block an app after some minutes a day** - For a Google TV, where Google ignores app limits but a block works. Family Link blocks the app for the child, so on every device of the child until the unblock time.
-- **Web filter select** - `select.<child>_web_filter` switches the Chrome filter mode: allow all sites, try to block explicit sites, or only allow approved sites. With the school time sensors, an automation can open the web for homework and go back to approved sites after.
+- **Web filter: allow all sites** - `select.<child>_web_filter` and `set_filter_level` (2.3.2) gain the third mode of the app, "Allow all sites" (`all_sites`, no filter; Google reads it back as `allowByDefault`). The select shows the mode just set when Google still answers with the previous one right after the change, and a refused change fails with an error.
 - **Delete old devices** - A device Google no longer lists (a reset phone, an emulator used once) can be deleted on its device page. A device still listed would come back, so it can't be.
 
 ### Fixed
 - **Entity names no longer repeat the child or device name** - A new install named entities such as `sensor.alex_family_link_alex_battery_level`. The child and device entities now take the device name in front once, and follow a device renamed in Home Assistant. Existing entity ids are kept; only the friendly names get shorter.
 - **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
 - **On a failed apps fetch the device names and the time Google last got usage are kept** - The fallback to the cached data named the devices by their raw id and dropped `data_updated` until the next good fetch.
+
+---
+
+## [2.5.0] - 2026-11-05
+
+### Added
+- `sensor.<device>_battery_level`: the battery of each device, without GPS tracking. It adds one Google call per child at each update (#223).
+
+---
+
+## [2.4.5] - 2026-11-05
+
+### Changed
+- The Marketplace now installs the `familylink.zip` of each release, so it can show a download count. **Manual install:** the files are now at the root of the zip: extract it into a new `config/custom_components/familylink/` folder.
+- The documentation follows Home Assistant 2026.11: Marketplace instead of HACS, apps instead of add-ons in the menus, and no custom repository to add.
+
+---
+
+## [2.4.4] - 2026-11-05
+
+### Security
+- The child's position no longer appears in the log, even in debug: coordinates, place name and raw location responses are left out (logs are often pasted in public issues).
+
+---
+
+## [2.4.3] - 2026-11-05
+
+### Added
+- The integration ships its own icon and logo (`brand/`), so Home Assistant shows them without the brands repository.
+
+---
+
+## [2.4.2] - 2026-11-04
+
+### Fixed
+- **Strict mode no longer "corrects" the parent's own clicks.** Switching bedtime, school time, the daily limit or a device lock several times in a few seconds from Home Assistant could make strict mode revert one of them and send a "changed from Family Link" notification: each write takes seconds, they end out of order, and strict mode read a Google state that did not show the last click yet, or ran a correction planned before it. A target written from Home Assistant is now left alone while the write runs and for a few seconds after, and a correction is dropped when the parent decided otherwise since it was planned.
+- A family member without an id is logged by its field names only, not with its name, e-mail and photo (logs are often pasted in public issues).
+
+---
+
+## [2.4.1] - 2026-11-03
+
+Fixes from a full review: actions no longer guess the child, a change Google refuses is reported, strict mode and transient errors behave, and the auth add-on 1.9.5 closes its standalone cookie endpoint (#227).
+
+### Fixed
+- **A call that names no child no longer changes the first child's settings.** `add_time_bonus`, `set_daily_limit` and `ring_device` with only a `device_id`, and the bedtime, school time and daily limit actions with no child (or a template that rendered an empty `child_id`), were sent to the first supervised child, and strict mode then enforced the change on that child. The child now comes from the device; a family with several children must name the child, and a family with one child still needs no target.
+- **A change Google refuses is reported as an error.** The lock switch, the bonus, cancel and ring buttons, the bedtime, school time, daily limit and downtime switches, the time, number and select entities, and the `block_app`, `unblock_app`, `set_app_daily_limit`, `add_time_bonus`, `ring_device`, `set_bedtime` and enable/disable actions only wrote a line in the log when Google refused: an automation that locked the phone showed success while the phone stayed unlocked. They now fail with an error, and a refused bonus no longer keeps strict mode from cancelling a bonus given on Google's side. **Behaviour change:** an automation now stops at the step Google refused; add `continue_on_error: true` to a step that may fail without stopping the rest.
+- **Strict mode lifts its own lock after midnight.** A bypass countered before midnight left the phone locked the next morning: the day change also forgot that the lock was strict mode's to lift when bedtime ended.
+- **A transient Google error no longer shows every device unlocked or clears the position.** A failed read of the applied limits now keeps the last lock state, and a server error or timeout on the location read keeps the last position instead of sending the tracker to unknown (which fired zone automations). A lasting refusal (location sharing turned off) still clears it. `refresh_location` refreshes every child even when one fails, and no longer writes the coordinates in the log.
+- **Screen time statistics no longer drop at midnight.** The daily screen time sensors counted their reset to 0 as a negative change in the long-term statistics; they are now `total_increasing`.
+- **`sync_site_list` leaves alone a site approved in any form.** Only an approval written exactly `example.com` or `*.example.com` kept a list from blocking example.com; an approved `www.example.com`, `*.example.*` or web address on example.com was blocked anyway, since Chrome lets a block win over an allow. Every approval that shares a site with a listed domain now skips it (follow-up to #195).
+- **Reconfigure keeps an add-on entry on the add-on (#186).** An entry set up through the add-on stores no URL, so the form showed `http://localhost:8099` and submitting it turned the entry into a manual one that could not connect: "Clear API key" never worked on Home Assistant OS.
+
+### Security
+- **Auth add-on 1.9.5:** the standalone image protects `/api/cookies` with a generated key, a failed login start no longer blocks every later login, and parallel starts no longer launch a browser each (see the add-on changelog). **Standalone users:** enter the key printed in the container log in the integration's *Reconfigure*.
+
+---
+
+## [2.4.0] - 2026-11-03
+
+The Family Link entities and actions can be kept to the parents' Home Assistant accounts, and the auth add-on gets two fixes (VNC password enforced, a language with an underscore no longer breaks the login).
+
+### Added
+- **Users allowed to control Family Link (#224)** - Home Assistant lets every user press any button or flip any switch, so a child with a Home Assistant account could give themselves a bonus from the Family Link entities. A new option, *Users allowed to control Family Link* (Settings > Devices & services > Google Family Link > Configure), closes that: once users are ticked, only they and the administrators can use the Family Link buttons, switches, limits, times and selects, and the `familylink.*` actions; anyone else gets an "Unauthorized" error and the attempt is logged. Automations and scripts started by Home Assistant itself are not affected. Empty (the default) keeps the previous behaviour, and changing the option needs no reload. Asked by @artgru.
+- **Auth add-on 1.9.4: a language written with an underscore no longer breaks the Google login (#209)** - `language: en_EN` or `de_DE` made Google refuse the sign-in page's scripts (CORS on the Accept-Language header): the form showed but nothing on it worked. The add-on now turns the value into the form browsers expect (`en-EN`, `de-DE`) and says so in the log. Reported by @SgtSeppel.
+
+### Security
+- **Auth add-on 1.9.2: the VNC password is actually required** - Since 1.9.0 the add-on and the standalone image generated a VNC password and printed it in the log, but neither image included the tool that applies it, so the start scripts silently ran the VNC server with no authentication: anyone who could reach port 6080 opened the browser holding the parent's Google session. The tool is now installed and the scripts never start the VNC server without a password. Update the add-on (or pull the standalone image); if port 6080 was reachable by others, sign out of that Google session on other devices and log in again. Found while looking into #209.
+
+---
+
+## [2.3.2] - 2026-10-27
+
+The child's Chrome web filter can be switched from Home Assistant, and a day's school time can be switched off and on again.
+
+### Added
+- **Chrome web filter mode: `set_filter_level` service and `select.<child>_web_filter` (#211)** - The "Filters" choice of "Google Chrome and Web" can be switched from Home Assistant between the approved sites only (`approved_only`, the allow list) and every site with Google's explicit-content filter (`filtered`), so an automation can open the web during school time and go back to the allow list after. The call was captured by @Me-xx on the web app; it is one POST to `settingResources:performAction` and the lists are read back at once. Asked by @Me-xx.
+- **`set_school_time` switches a day's school time on or off (`enabled`)** - `enabled: false` unchecks the day in the weekly schedule as the Family Link app does, keeping its hours, `enabled: true` checks it again. The call was captured on the web app.
+
+---
+
+## [2.3.1] - 2026-10-27
+
+The school time windows of a day with a break can be added and removed from Home Assistant, entries created before the `auth_source` marker work with the add-on stopped, and the add-on images are rebuilt on the Node.js security release.
+
+### Fixed
+- **Add-on stopped: entries created before the `auth_source` marker now read the shared cookie file (#214)** - An entry auto-detected before v2.2 stores the add-on's Docker hostname (`http://<slug>-familylink-playwright:8099`) like a manual server. With the add-on stopped, the Supervisor lists no running add-on, the stored URL was tried without a key and the shared `cookies.enc` was never read, so setup failed with "No cookies found" although the documentation says the add-on may stay stopped after login. That URL shape is now recognised as the add-on's own: the shared key is used and the shared file serves the cookies when the add-on does not answer. A Supervisor lookup that finds no running add-on is no longer cached for the life of the entry, which also removes the 403 seen at boot when the add-on started a few seconds after Home Assistant. Reported with the diagnosis by @sleepymaxx.
+- **Add-on 1.9.1: images rebuilt on Playwright 1.64.1 with Node.js 24.22.1, Debian `nodejs`/`npm` dropped (#210)** - The add-on and standalone images carried Playwright's Node.js 24.21.0, fixed by the Node.js security release of 2026-10-21, plus an unused end-of-life Node.js 18 from Debian. Reported by @Sawtaytoes.
+
+### Added
+- **`set_school_time` takes every window of a school day with a break (`windows`)** - A day with a break is stored by Google as several windows; the start and end fields move the first and the last one, which keeps the break but cannot set its hours. `windows: ["08:00-12:00", "13:30-15:00"]` now sets both windows of the day in order (the `windows` attribute of the school time entities lists the current ones): two windows on a day that has one add the break, one window on a day that has two removes it. Family Link allows one break per day, so a third window is refused, and a day must already have school time in the app. The calls that add and remove a window were captured on the web app. Asked by Watapana.
 
 ---
 

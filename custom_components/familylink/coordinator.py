@@ -5,6 +5,7 @@ import asyncio
 import copy
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
 
@@ -48,6 +49,7 @@ from .strict_mode import (
 	ACTION_SET_DAILY_LIMIT,
 	ACTION_SET_WEEKLY_LIMIT,
 	ACTION_UNLOCK_DEVICE,
+	DEVICE_INTENT_AUTO_LOCK,
 	plan_strict_actions,
 	snapshot_policies,
 	snapshot_values,
@@ -123,6 +125,10 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		self._strict_mode_children: dict[str, bool] = {}
 		self.strict_mode_status: dict[str, dict[str, Any]] = {}  # child_id -> last action info
 		self._strict_cooldown: dict[str, float] = {}  # action key -> last run timestamp
+		# Writes made from HA, keyed "child:policy" or device id: strict mode
+		# leaves a target alone while one runs and for a moment after (D-038)
+		self._ha_writes_running: dict[str, int] = {}
+		self._ha_write_ended: dict[str, float] = {}
 		self._ha_bonus_until: dict[str, float] = {}  # device_id -> until when an HA-granted bonus is legitimate
 		# Today's decisions made from Home Assistant, per child (persisted so a
 		# restart does not turn a bedtime the parent switched off back on):
@@ -252,7 +258,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		for child in supervised_children:
 			child_id = child.get("userId")
 			if not child_id:
-				_LOGGER.warning("Skipping child with missing userId: %s", child)
+				# Field names only: the member record holds the child's name, e-mail and photo,
+				# and logs end up pasted in public issues
+				_LOGGER.warning("Skipping child with missing userId (fields: %s)", sorted(child))
 				continue
 			child_name = child.get("profile", {}).get("displayName", "Unknown")
 
@@ -416,6 +424,12 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 					for cached_child in self._last_known_data.get("children_data", []):
 						if cached_child.get("child_id") == child_id:
 							devices_time_data = cached_child.get("devices_time_data", {})
+							# Without it every device would read unlocked for this poll
+							device_lock_states = {
+								device["id"]: device.get("locked", False)
+								for device in cached_child.get("devices") or []
+								if device.get("id")
+							}
 							bedtime_enabled_today = cached_child.get("bedtime_enabled_today")
 							schooltime_enabled_today = cached_child.get("school_time_enabled_today")
 							_LOGGER.debug(f"Using cached applied time limits for {child_name}")
@@ -548,15 +562,17 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 									source_device_name = device.get("name")
 									break
 						location["source_device_name"] = source_device_name
-						_LOGGER.debug(
-							f"Fetched location for {child_name}: "
-							f"({location['latitude']}, {location['longitude']}) "
-							f"place={location.get('place_name') or 'unknown'}"
-						)
+						_LOGGER.debug(f"Fetched location for {child_name}")
 				except SessionExpiredError:
 					raise  # Re-raise to trigger auth notification
 				except Exception as err:
 					_LOGGER.warning(f"Failed to fetch location data for {child_name}: {err}")
+					# Keep the last position: a cleared one sends the tracker to
+					# unknown and fires zone automations on a Google hiccup
+					for cached_child in (self._last_known_data or {}).get("children_data", []):
+						if cached_child.get("child_id") == child_id:
+							location = cached_child.get("location")
+							break
 
 			# Who can call and text the child (select entity). One call per
 			# child; on a transient error keep the last known level.
@@ -573,6 +589,20 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 							contact_restriction = cached_child.get("contact_restriction")
 							_LOGGER.debug(f"Using cached contact restriction for {child_name}")
 							break
+
+			# Battery of each device. One call per child; on a transient error
+			# keep the last readings.
+			device_batteries = {}
+			try:
+				device_batteries = await self.client.async_get_device_batteries(account_id=child_id)
+			except SessionExpiredError:
+				raise  # Re-raise to trigger auth notification
+			except Exception as err:
+				_LOGGER.warning(f"Failed to fetch device batteries for {child_name}: {err}")
+				for cached_child in (self._last_known_data or {}).get("children_data", []):
+					if cached_child.get("child_id") == child_id:
+						device_batteries = cached_child.get("device_batteries", {})
+						break
 
 			websites = await self._async_child_websites(child_id, child_name)
 			usage_grew = self._usage_growth.update(child_id, screen_time, dt_util.utcnow())
@@ -591,6 +621,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"usage_refresh": self._usage_refresh,
 				"location": location,
 				"contact_restriction": contact_restriction,
+				"device_batteries": device_batteries,
 				"websites": websites,
 				"apps": apps_usage_data.get("apps", []) if apps_usage_data else [],
 				"app_usage_sessions": apps_usage_data.get("appUsageSessions", []) if apps_usage_data else [],
@@ -688,7 +719,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				_LOGGER.error(f"Could not determine child_id for device {device_id}")
 				return False
 
-			success = await self.client.async_control_device(device_id, action, child_id)
+			async with self._ha_write(device_id):
+				success = await self.client.async_control_device(device_id, action, child_id)
 
 			if success:
 				_LOGGER.info(f"Successfully {action}ed device {device_id}")
@@ -835,16 +867,29 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		reset at midnight would let a weekly change made on Google's side
 		become the reference the next morning. A lock or unlock done from HA
 		is a decision for the day: it expires at midnight, and the bypass
-		protection of the lock rule resumes.
+		protection of the lock rule resumes. A lock strict mode placed itself
+		is carried over one midnight, no more: it is lifted when the
+		restriction it protects ends, and a bedtime crossing midnight ends the
+		next morning, but a lock rule switched off meanwhile must not lift a
+		lock days later. "carried" lists the locks already carried once.
 		"""
-		today = dt_util.now().date().isoformat()
+		now = dt_util.now().date()
+		today = now.isoformat()
+		yesterday = (now - timedelta(days=1)).isoformat()
 		entry = self._strict_intents.get(child_id)
 		if not entry:
 			entry = {"date": today, "policies": {}, "devices": {}, "values": {}}
 			self._strict_intents[child_id] = entry
 		elif entry.get("date") != today:
+			kept = entry.get("date") == yesterday
+			carried = set(entry.get("carried") or [])
 			entry["date"] = today
-			entry["devices"] = {}
+			entry["devices"] = {
+				device_id: intent
+				for device_id, intent in (entry.get("devices") or {}).items()
+				if kept and intent == DEVICE_INTENT_AUTO_LOCK and device_id not in carried
+			}
+			entry["carried"] = list(entry["devices"])
 		entry.setdefault("policies", {})
 		entry.setdefault("values", {})
 		return entry
@@ -856,6 +901,29 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		for child_data in (self.data or {}).get("children_data", []):
 			return child_data.get("child_id")
 		return None
+
+	@asynccontextmanager
+	async def _ha_write(self, key: str):
+		"""Mark a write from HA as running on ``key`` (see _ha_write_recent)."""
+		self._ha_writes_running[key] = self._ha_writes_running.get(key, 0) + 1
+		try:
+			yield
+		finally:
+			self._ha_writes_running[key] -= 1
+			self._ha_write_ended[key] = time.time()
+
+	def _ha_write_recent(self, key: str) -> bool:
+		"""A write from HA on ``key`` runs, or ended too recently for Google to show it."""
+		return self._ha_writes_running.get(key, 0) > 0 or time.time() - self._ha_write_ended.get(key, 0.0) < 5.0
+
+	async def async_set_policy(self, child_id: str, policy: str, enable: bool) -> bool:
+		"""Switch bedtime, school time or the daily limit from HA, as the parent's decision of the day."""
+		method = getattr(self.client, f"async_{'enable' if enable else 'disable'}_{policy}")
+		async with self._ha_write(f"{child_id}:{policy}"):
+			success = await method(account_id=child_id)
+			if success:
+				self.record_policy_intent(child_id, policy, enable)
+		return success
 
 	def record_policy_intent(self, child_id: str | None, policy: str, enabled: bool) -> None:
 		"""Remember that bedtime / daily limit / school time was set from HA today."""
@@ -871,7 +939,11 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		child_id = self._resolve_child_id(child_id)
 		if not child_id or not device_id:
 			return
-		self._intents_for(child_id)["devices"][device_id] = action
+		entry = self._intents_for(child_id)
+		entry["devices"][device_id] = action
+		# Recorded today: no longer a lock carried over from yesterday
+		if device_id in (entry.get("carried") or []):
+			entry["carried"].remove(device_id)
 		self._save_strict_intents()
 		_LOGGER.debug(f"Strict mode: device {device_id} {action}ed from HA for child {child_id} (kept for today)")
 
@@ -974,17 +1046,28 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			"values": copy.deepcopy(entry.get("values", {})),
 		}
 
-	def register_ha_bonus(self, device_id: str, minutes: int) -> None:
+	def restore_ha_bonus(self, device_id: str, previous: float | None) -> None:
+		"""Undo register_ha_bonus after a bonus Google did not take."""
+		if previous is None:
+			self._ha_bonus_until.pop(device_id, None)
+		else:
+			self._ha_bonus_until[device_id] = previous
+		self._save_strict_intents()
+
+	def register_ha_bonus(self, device_id: str, minutes: int) -> float | None:
 		"""Record a bonus granted from Home Assistant so strict mode leaves it alone.
 
 		Strict mode reverts what is done from the Family Link side; a bonus the
 		parent gives through the buttons or the add_time_bonus action is the
 		parent's decision and must survive. The allowance lasts the bonus
-		duration plus a short grace period.
+		duration plus a short grace period. Returns the previous allowance, for
+		restore_ha_bonus.
 		"""
+		previous = self._ha_bonus_until.get(device_id)
 		self._ha_bonus_until[device_id] = time.time() + max(int(minutes), 0) * 60 + STRICT_MODE_BONUS_GRACE
 		self._save_strict_intents()
 		_LOGGER.debug(f"Strict mode: bonus of {minutes} min granted from HA on {device_id}, protected")
+		return previous
 
 	def _ha_bonus_devices(self) -> frozenset[str]:
 		"""Devices whose HA-granted bonus is still running (expired entries pruned)."""
@@ -1061,13 +1144,16 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 					child_data, self.strict_rules, self._ha_bonus_devices(), intents,
 					today=dt_util.now().isoweekday(),
 				)
+				planned = copy.deepcopy({"policies": intents["policies"], "devices": intents["devices"]})
 			except Exception as err:
 				_LOGGER.warning(f"Strict mode: could not evaluate child {child_id}: {err}")
 				continue
 			for action in actions:
-				await self._async_run_strict_action(child_data, action)
+				await self._async_run_strict_action(child_data, action, planned)
 
-	async def _async_run_strict_action(self, child_data: dict[str, Any], action: dict[str, Any]) -> None:
+	async def _async_run_strict_action(
+		self, child_data: dict[str, Any], action: dict[str, Any], planned: dict[str, Any] | None = None
+	) -> None:
 		"""Execute one corrective action, with the same guards as the switches."""
 		child_id = action["child_id"]
 		name = action["action"]
@@ -1084,6 +1170,22 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		if policy and self.get_pending_time_limit_state(child_id, policy) is not None:
 			return
 		if name in (ACTION_LOCK_DEVICE, ACTION_UNLOCK_DEVICE) and device_id in self._pending_lock_states:
+			return
+		# The parent's own clicks: a write from HA still running or just
+		# done (the refresh may predate it), or a decision taken after this
+		# plan was made (earlier actions take seconds each)
+		if policy:
+			target, kind = policy, "policies"
+			if self._ha_write_recent(f"{child_id}:{policy}"):
+				return
+		elif name in (ACTION_LOCK_DEVICE, ACTION_UNLOCK_DEVICE):
+			target, kind = device_id, "devices"
+			if self._ha_write_recent(device_id):
+				return
+		else:
+			kind = None
+		if kind and planned is not None and self._intents_for(child_id)[kind].get(target) != planned[kind].get(target):
+			_LOGGER.debug(f"Strict mode: {name} for {child_id} dropped, decided otherwise from HA since")
 			return
 
 		key = f"{child_id}:{name}:{device_id or ''}:{action.get('day') or ''}"

@@ -11,8 +11,6 @@ RUN apt-get update \
         python3-pip \
         python3-dev \
         curl \
-        nodejs \
-        npm \
         ca-certificates \
         fonts-liberation \
         libnss3 \
@@ -28,6 +26,7 @@ RUN apt-get update \
         xvfb \
         x11vnc \
         tigervnc-standalone-server \
+        tigervnc-tools \
         novnc \
         python3-websockify \
         fluxbox \
@@ -52,6 +51,14 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 # Debian-based image supports Playwright on ARM64
 RUN pip3 install --no-cache-dir --break-system-packages playwright && \
     playwright install --with-deps chromium
+
+# The login browser must not reach local files: through noVNC, file:///share/familylink
+# or a file upload dialog would expose the stored session (cookies.enc, .key, api_key).
+# Written for Chromium, Chrome and Chrome for Testing builds, whichever Playwright ships.
+RUN for dir in /etc/chromium/policies/managed /etc/opt/chrome/policies/managed /etc/opt/chrome_for_testing/policies/managed; do \
+        mkdir -p "$dir" && \
+        echo '{"URLBlocklist": ["file://*"], "AllowFileSelectionDialogs": false}' > "$dir/familylink.json"; \
+    done
 
 # Copy application code
 COPY app/ /app/app/

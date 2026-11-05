@@ -44,6 +44,8 @@ Home Assistant checks a user's entity permissions on entity actions (toggling a 
 
 So a child with a non-admin Home Assistant account cannot grant themselves a bonus through the API, and an entity permission policy (for example one written with [ha-rbac](https://github.com/FezVrasta/ha-rbac)) applies to the services too. A dashboard used by a non-administrator should call services with the `entity_id` of the device or child, never with raw identifiers.
 
+The entities themselves (bonus buttons, switches, limits, times, selects) are open to every Home Assistant user by default, like any entity. The integration option **Users allowed to control Family Link** closes them: once users are ticked, a non-administrator who is not ticked is refused on every Family Link entity and every `familylink.*` action, whatever the rules above allow. Administrators and automations are never refused. Leave it empty to keep the default.
+
 ## App management
 
 ### familylink.block_device_for_school
@@ -261,12 +263,16 @@ data:
 
 Sets the school time start and finish for a day. By default this edits the recurring **weekly** school time slot of that day, the same way `set_bedtime` edits bedtime. Use `scope: today` for a one-off window today only, which leaves the weekly schedule untouched and replaces any school time override already posted for today.
 
-The weekly scope only changes an existing slot: the day must already have a school time window in Family Link (create it once in the app). School time is a same-day window, so the end must be after the start.
+The weekly scope only changes an existing slot: the day must already have a school time window in Family Link (create it once in the app). A day can be switched off and on again with `enabled`, which keeps its hours, as the day's checkbox in the app does. School time is a same-day window, so the end must be after the start.
+
+A school day with a break is stored by Google as two windows on the same day. `start_time` and `end_time` then move the first window's start and the second window's end, and the break stays. To set both windows, pass `windows` instead: the day's windows in order (the `windows` attribute of the `time.<child>_<weekday>_school_time_start|end` entities shows the current ones). Two windows on a day that has one add the break, one window on a day that has two removes it. Family Link allows one break per day, so a third window is refused.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `start_time` | string, `H:MM`, `HH:MM` or `HH:MM:SS` (24 h) | yes | - | School time start, e.g. `08:00` |
-| `end_time` | string, `H:MM`, `HH:MM` or `HH:MM:SS` (24 h) | yes | - | School time end, same day, e.g. `13:15` |
+| `start_time` | string, `H:MM`, `HH:MM` or `HH:MM:SS` (24 h) | with `end_time` | - | School time start, e.g. `08:00`. Not with `windows` |
+| `end_time` | string, `H:MM`, `HH:MM` or `HH:MM:SS` (24 h) | with `start_time` | - | School time end, same day, e.g. `13:15`. Not with `windows` |
+| `windows` | list of one or two `HH:MM-HH:MM` | instead of start and end | - | The day's windows in order, e.g. `["08:00-12:00", "13:30-15:00"]`; two windows on a one-window day add the break, one window on a two-window day removes it. Weekly scope only |
+| `enabled` | boolean | on its own | - | Switch the day's school time on or off in the weekly schedule, keeping its hours (the day's checkbox in the app). Weekly scope only |
 | `day` | int, 1 to 7 (1 = Monday) | no | today | Day of the week to change. With `scope: today` it must be today |
 | `scope` | `weekly` or `today` | no | `weekly` | `weekly` edits the recurring schedule; `today` posts a one-off window for today |
 | `entity_id` | entity id | no | - | Any entity of the child |
@@ -282,6 +288,31 @@ data:
   start_time: "{{ as_timestamp(states('sensor.emma_today_s_school_start')) | timestamp_custom('%H:%M') }}"
   end_time: "{{ as_timestamp(states('sensor.emma_today_s_school_end')) | timestamp_custom('%H:%M') }}"
   day: "{{ now().isoweekday() }}"
+
+# A school day with a lunch break: both windows of Tuesday (adds the break if
+# Tuesday had one window, moves it if it had two)
+action: familylink.set_school_time
+data:
+  entity_id: switch.emma_school_time
+  day: 2
+  windows:
+    - "08:00-12:00"
+    - "13:30-15:00"
+
+# Back to one window on Tuesday (removes the break)
+action: familylink.set_school_time
+data:
+  entity_id: switch.emma_school_time
+  day: 2
+  windows:
+    - "08:00-15:00"
+
+# No school on Wednesday this term (the day keeps its hours, switched off)
+action: familylink.set_school_time
+data:
+  entity_id: switch.emma_school_time
+  day: 3
+  enabled: false
 ```
 
 ### familylink.enable_bedtime / familylink.disable_bedtime
@@ -406,6 +437,7 @@ Patterns: a website `www.example.com`, a domain wildcard `*.example.com` or `*.e
 | `familylink.get_sites` | `entity_id` or `child_id` | Response only: `filter_level`, `approved`, `blocked` (every entry, including ones added in the app) |
 | `familylink.block_site` / `familylink.allow_site` | `entity_id` or `child_id`, `sites` (list) | Optional response: `covered`, inserts Google skipped because an existing entry already covers them |
 | `familylink.remove_site` | `entity_id` or `child_id`, `sites` (list) | Removes from either list, whoever added the entry. Response: `removed`, `not_listed` |
+| `familylink.set_filter_level` | `entity_id` or `child_id`, `filter_level` (`all_sites`, `approved_only` or `filtered`) | Switches the Chrome web filter between every site with no filter, the approved sites only (the allow list) and every site with Google's explicit-content filter, the "Filters" choice of the app. Also a `select.<child>_web_filter` entity. Response: `filter_level` |
 | `familylink.sync_site_list` | `entity_id` or `child_id`, `url`, `max_domains` (default 2000), `stop` | Downloads a domain list (one per line, `#` comments, hosts-file lines tolerated), blocks `*.domain` and `domain` for each, and removes only what the same URL added before and has since dropped. Domains you approved are skipped. `stop: true` removes everything that list added and forgets it. The list is a third party's, so: **administrators only**, the `url` must be `https` and redirects are not followed (give the final address), the download is read up to 1 MiB, and only plain domains are taken (wildcards, web addresses, IP addresses and bare suffixes such as `co.uk` are ignored and counted). A list with no usable domain, or one that would remove more than half of what it added (20 entries at least), is refused and nothing changes; if the list really shrank that much, run `stop: true` and sync again. Changes go out in calls of at most 2,500 entries. Response: `added_count`, `removed_count` and up to 20 of each, `skipped_approved`, `ignored_count` and up to 20 `ignored` |
 
 Sensors per child: `sensor.<child>_blocked_sites` and `sensor.<child>_approved_sites` (count; `sites` and `filter_level` attributes), read every 15 minutes and right after a change made from Home Assistant.
@@ -422,5 +454,11 @@ action: familylink.sync_site_list
 data:
   entity_id: sensor.alex_daily_screen_time
   url: https://example.org/blocklist.txt
+
+# Open the web during school time, back to the allow list after
+action: familylink.set_filter_level
+data:
+  entity_id: sensor.alex_daily_screen_time
+  filter_level: "{{ 'filtered' if is_state('binary_sensor.alex_phone_school_time_active', 'on') else 'approved_only' }}"
 ```
 

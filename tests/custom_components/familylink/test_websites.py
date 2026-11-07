@@ -242,6 +242,22 @@ async def test_get_sites_returns_the_lists(hass, site_services) -> None:
 
     assert result["blocked"] == ["manual.example"]
     assert result["approved"] == ["*.wikipedia.*"]
+    assert result["from_list"] == []
+    assert result["from_list_by_url"] == {}
+
+
+async def test_get_sites_marks_what_a_list_sync_added_and_is_still_blocked(hass, site_services) -> None:
+    await Store(hass, 1, f"{DOMAIN}.site_sync").async_save(
+        {CHILD: {LIST_URL: ["*.listed.example", "*.gone.example"]}, "other-child": {LIST_URL: ["*.x.example"]}}
+    )
+    site_services.client.async_get_website_restrictions.return_value = {
+        "filter_level": "safeSites", "approved": [], "blocked": ["manual.example", "*.listed.example"],
+    }
+
+    result = await _call(hass, "get_sites", {"child_id": CHILD})
+
+    assert result["from_list"] == ["*.listed.example"]
+    assert result["from_list_by_url"] == {LIST_URL: ["*.listed.example"]}
 
 
 async def test_block_and_allow_send_normalised_patterns(hass, site_services) -> None:

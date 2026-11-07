@@ -64,6 +64,7 @@ def coordinator():
         data={"children_data": [{"child_id": "child-1", "devices": []}]},
         async_request_refresh=AsyncMock(),
         # Strict mode hooks the service handlers call before hitting the API
+        async_reset_bonus=AsyncMock(return_value=1),
         register_ha_bonus=MagicMock(return_value=None),
         restore_ha_bonus=MagicMock(),
         record_policy_intent=MagicMock(),

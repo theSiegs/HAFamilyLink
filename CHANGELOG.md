@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Blueprint: block an app after some minutes a day** - For a Google TV, where Google ignores app limits but a block works. Family Link blocks the app for the child, so on every device of the child until the unblock time.
 - **Web filter: allow all sites** - `select.<child>_web_filter` and `set_filter_level` (2.3.2) gain the third mode of the app, "Allow all sites" (`all_sites`, no filter; Google reads it back as `allowByDefault`). The select shows the mode just set when Google still answers with the previous one right after the change, and a refused change fails with an error.
 - **Delete old devices** - A device Google no longer lists (a reset phone, an emulator used once) can be deleted on its device page. A device still listed would come back, so it can't be.
+- **`reset_bonus` action** - Ends every bonus of the day on one device, as the device's Reset Bonus button does (bonuses added in the Family Link app too). Target any Family Link entity of the device, the button included, or pass `device_id`. Returns `cancelled`, the number of bonuses ended.
+- **Paused apps on the apps with time limits sensor** - `paused_apps` lists each app `pause_app` paused for the child: `package`, `prior` (the setting `resume_app` puts back) and `pause_intact`, false once a parent changed the app's setting in the Family Link app.
+- **When a bonus was granted** - `bonus_granted_at` on the Active Bonus sensor, in local time, for a bonus from Home Assistant or the Family Link app. Google reports no end time: bonus minutes count down only while the device is used.
+
+### Changed
+- **`resume_app` keeps a parent's change** - It reads each app's current setting from Google and restores the saved one only while the app is still at the pause limit. A limit, unlimited time or no limit set in the Family Link app since the pause is kept and the saved setting dropped. The response gives each app in `results` as `restored`, `kept_current` (values in `kept_current`) or `not_paused`; when the current settings can't be read, the saved setting is restored as before and a warning logged (`current_state_read: false`). A new pause after such a change saves the parent's setting.
+- **Daily Limit Reached always names its child and device** - `child_id`, `device_id` and `device_name` stay on the sensor when Google returns no time data for the device.
 
 ### Fixed
 - **Entity names no longer repeat the child or device name** - A new install named entities such as `sensor.alex_family_link_alex_battery_level`. The child and device entities now take the device name in front once, and follow a device renamed in Home Assistant. Existing entity ids are kept; only the friendly names get shorter.

@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -28,6 +28,7 @@ from .const import (
 	MAX_UPDATE_INTERVAL,
 	MIN_UPDATE_INTERVAL,
 	SERVICE_ADD_TIME_BONUS,
+	SERVICE_RESET_BONUS,
 	SERVICE_BLOCK_APP,
 	SERVICE_BLOCK_DEVICE_FOR_SCHOOL,
 	SERVICE_DISABLE_BEDTIME,
@@ -173,6 +174,12 @@ SCHEMA_ADD_TIME_BONUS = vol.Schema({
 	vol.Optional("entity_id"): cv.entity_id,
 	vol.Optional("device_id"): cv.string,
 	vol.Required("bonus_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1, max=1440)),
+	vol.Optional("child_id"): cv.string,
+})
+
+SCHEMA_RESET_BONUS = vol.Schema({
+	vol.Optional("entity_id"): cv.entity_id,
+	vol.Optional("device_id"): cv.string,
 	vol.Optional("child_id"): cv.string,
 })
 
@@ -347,6 +354,23 @@ def _child_id_from_device(hass: HomeAssistant, entity_id: str) -> str | None:
 		if domain == DOMAIN and identifier:
 			# Child hub: "<child_id>"; supervised phone: "<child_id>_<device_token>"
 			return str(identifier).split("_", 1)[0]
+	return None
+
+
+def _device_token_from_device(hass: HomeAssistant, entity_id: str) -> str | None:
+	"""Device token of the supervised device an entity belongs to (None if unknown)."""
+	from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+	reg_entry = er.async_get(hass).async_get(entity_id)
+	if reg_entry is None or not reg_entry.device_id:
+		return None
+	device = dr.async_get(hass).async_get(reg_entry.device_id)
+	if device is None:
+		return None
+	for domain, identifier in device.identifiers:
+		# Supervised device: "<child_id>_<device_token>"; a child hub has no "_"
+		if domain == DOMAIN and "_" in str(identifier):
+			return str(identifier).split("_", 1)[1]
 	return None
 
 
@@ -618,6 +642,31 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 			raise HomeAssistantError(f"Family Link did not add the time bonus to device {device_id} (see the log for details)")
 		_LOGGER.info(f"Successfully added {bonus_minutes} minutes bonus to device {device_id}")
 		await coordinator.async_request_refresh()
+
+	async def handle_reset_bonus(call: ServiceCall) -> ServiceResponse:
+		"""End every time bonus of the day on one device (as the reset bonus button)."""
+		_require_client()
+		entity_id = call.data.get("entity_id")
+		device_id = call.data.get("device_id")
+		child_id = call.data.get("child_id")
+		if entity_id:
+			try:
+				extracted_device_id, extracted_child_id = extract_ids_from_entity(hass, entity_id)
+			except ValueError as err:
+				raise ServiceValidationError(str(err)) from err
+			# Entities without a device_id attribute (the reset bonus button):
+			# the device comes from the registry, "<child_id>_<device_token>"
+			device_id = device_id or extracted_device_id or _device_token_from_device(hass, entity_id)
+			child_id = child_id or extracted_child_id
+		if not device_id:
+			raise ServiceValidationError(
+				"No device given. Select a Family Link entity of the device, or pass device_id."
+			)
+		if not child_id:
+			child_id = resolve_service_child(hass, coordinator.data, call, device_id)
+		_LOGGER.info(f"Service called: reset_bonus for device {device_id}")
+		cancelled = await coordinator.async_reset_bonus(child_id, device_id)
+		return {"child_id": child_id, "device_id": device_id, "cancelled": cancelled}
 
 	def _policy_toggle_handler(policy: str, label: str, enable: bool):
 		"""Handler of enable_/disable_ bedtime, school_time and daily_limit."""
@@ -1018,6 +1067,15 @@ async def async_setup_services(hass: HomeAssistant, coordinator: FamilyLinkDataU
 	async_register_guarded_service(
 		hass,
 		DOMAIN,
+		SERVICE_RESET_BONUS,
+		handle_reset_bonus,
+		schema=SCHEMA_RESET_BONUS,
+		supports_response=SupportsResponse.OPTIONAL,
+	)
+
+	async_register_guarded_service(
+		hass,
+		DOMAIN,
 		SERVICE_ENABLE_BEDTIME,
 		handle_enable_bedtime,
 		schema=SCHEMA_ENABLE_BEDTIME,
@@ -1145,6 +1203,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 			hass.services.async_remove(DOMAIN, SERVICE_UNBLOCK_APP)
 			hass.services.async_remove(DOMAIN, SERVICE_SET_APP_DAILY_LIMIT)
 			hass.services.async_remove(DOMAIN, SERVICE_ADD_TIME_BONUS)
+			hass.services.async_remove(DOMAIN, SERVICE_RESET_BONUS)
 			hass.services.async_remove(DOMAIN, SERVICE_ENABLE_BEDTIME)
 			hass.services.async_remove(DOMAIN, SERVICE_DISABLE_BEDTIME)
 			hass.services.async_remove(DOMAIN, SERVICE_ENABLE_SCHOOL_TIME)

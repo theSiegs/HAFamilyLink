@@ -202,7 +202,7 @@ pause_app:
 
 resume_app:
   name: Resume App
-  description: "Put back the daily limit setting that apps had before pause_app (a limit, unlimited time, or no limit). Apps that pause_app did not pause are left alone, and so is an app blocked since the pause (its saved setting is kept for when it is unblocked). A child is required."
+  description: "Put back the daily limit setting that apps had before pause_app (a limit, unlimited time, or no limit), but only for an app still at the pause limit: a setting a parent changed in the Family Link app since the pause is kept and the saved one dropped. The response gives each app as restored, kept_current or not_paused. Apps that pause_app did not pause are left alone, and so is an app blocked since the pause (its saved setting is kept for when it is unblocked). A child is required."
   fields:
     packages:
       name: Packages
@@ -263,6 +263,32 @@ add_time_bonus:
     child_id:
       name: Child ID (manual)
       description: Child's user ID - only needed if not using entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+
+reset_bonus:
+  name: Reset Bonus
+  description: "End every time bonus of the day on one device, the same as the device's Reset Bonus button. Bonuses added in the Family Link app end too. Returns how many bonuses were cancelled (0 when there was none). Give a Family Link entity of the device, or device_id."
+  fields:
+    entity_id:
+      name: Device Entity
+      description: Any Family Link entity of the device (its switch, Active Bonus sensor or Reset Bonus button)
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    device_id:
+      name: Device ID (manual)
+      description: Device ID (device token) - only needed if not using the entity selector
+      required: false
+      example: "ABCD1234567890"
+      selector:
+        text:
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
       required: false
       example: "123456789012345678901"
       selector:

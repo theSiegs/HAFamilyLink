@@ -233,31 +233,8 @@ class CancelTimeBonusButton(CoordinatorEntity, ButtonEntity):
 			)
 			return
 
-		if self.coordinator.client is None:
-			raise HomeAssistantError("Cannot cancel time bonus: client not connected")
-
-		# Bonuses stack on Google's side and the applied limits only report
-		# the most recent one: cancel every bonus of the day, and fall back to
-		# the reported id when the override block could not be read (#142)
 		_LOGGER.info(f"Cancelling the time bonuses of the day for device {self._device_name}")
-
-		cancelled = await self.coordinator.client.async_cancel_all_time_bonuses(
-			device_id=self._device_id,
-			account_id=self._child_id,
-		)
-		success = cancelled > 0 or await self.coordinator.client.async_cancel_time_bonus(
-			override_id=override_id,
-			account_id=self._child_id,
-		)
-
-		if not success:
-			raise HomeAssistantError(f"Failed to cancel time bonus for device {self._device_name}")
-		else:
-			_LOGGER.info(
-				f"Successfully cancelled time bonus for device {self._device_name}"
-			)
-			# Refresh to update sensors
-			await self.coordinator.async_request_refresh()
+		await self.coordinator.async_reset_bonus(self._child_id, self._device_id)
 
 
 class RingDeviceButton(CoordinatorEntity, ButtonEntity):

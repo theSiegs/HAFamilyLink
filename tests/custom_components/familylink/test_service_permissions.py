@@ -37,6 +37,7 @@ ALL_SERVICES = [
     ("unblock_app", {"package_name": "com.example.app"}),
     ("set_app_daily_limit", {"package_name": "com.example.app", "minutes": 30}),
     ("add_time_bonus", {"bonus_minutes": 10}),
+    ("reset_bonus", {}),
     ("enable_bedtime", {}),
     ("disable_bedtime", {}),
     ("enable_school_time", {}),

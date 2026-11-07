@@ -11,6 +11,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -105,6 +106,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		self._pending_time_limit_states: dict[str, dict[str, tuple[bool, float]]] = {}  # child_id -> {"bedtime": (enabled, timestamp), "school_time": (enabled, timestamp), "daily_limit": (enabled, timestamp)}
 		self._last_known_data: dict[str, Any] | None = None  # Cache for last successful fetch
 		self.child_device_ids: dict[str, str] = {}  # child_id -> registry id of the child's hub device
+		# Apps paused by pause_app and the setting each had before: {child_id: {package: setting}}
+		# (kept by app_pause.py, shown by the apps with time limits sensor)
+		self.paused_apps: dict[str, dict[str, int]] = {}
 		# Chrome site lists change rarely: read every WEBSITES_REFRESH seconds,
 		# and taken from the answer of a change made from Home Assistant (store_websites).
 		self._websites: dict[str, tuple[float, dict[str, Any] | None]] = {}  # child_id -> (read at, lists)
@@ -1045,6 +1049,31 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			"devices": dict(devices),
 			"values": copy.deepcopy(entry.get("values", {})),
 		}
+
+	async def async_reset_bonus(self, child_id: str, device_id: str) -> int:
+		"""End every bonus of the day on a device; returns how many were cancelled.
+
+		Bonuses stack on Google's side and the applied limits only report the
+		most recent one: every bonus of the day is cancelled, and the reported
+		id is the fallback when the override block could not be read (#142).
+		Used by the reset bonus button and the reset_bonus action. Raises when
+		a reported bonus could not be cancelled; no bonus at all is 0.
+		"""
+		if self.client is None:
+			raise HomeAssistantError("Cannot cancel time bonus: client not connected")
+		override_id = None
+		for child_data in (self.data or {}).get("children_data", []):
+			if child_data.get("child_id") == child_id:
+				override_id = ((child_data.get("devices_time_data") or {}).get(device_id) or {}).get("bonus_override_id")
+				break
+		cancelled = await self.client.async_cancel_all_time_bonuses(device_id=device_id, account_id=child_id)
+		if not cancelled and override_id:
+			if not await self.client.async_cancel_time_bonus(override_id=override_id, account_id=child_id):
+				raise HomeAssistantError(f"Failed to cancel time bonus for device {device_id}")
+			cancelled = 1
+		_LOGGER.info(f"Cancelled {cancelled} time bonus(es) on device {device_id}")
+		await self.async_request_refresh()
+		return cancelled
 
 	def restore_ha_bonus(self, device_id: str, previous: float | None) -> None:
 		"""Undo register_ha_bonus after a bonus Google did not take."""

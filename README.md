@@ -166,10 +166,11 @@ Enable it with the **Strict mode** option of the integration (default for every 
 |---------|---------|
 | `familylink.block_app` / `familylink.unblock_app` | Block or unblock a single app by package name |
 | `familylink.set_app_daily_limit` | Per-app daily limit: minutes, blocked, limit off, or unlimited time |
-| `familylink.pause_app` / `familylink.resume_app` | Pause apps with a 1-minute daily limit instead of blocking them (a paused Google Messages keeps the texts that arrive), then put each app's earlier setting back |
+| `familylink.pause_app` / `familylink.resume_app` | Pause apps with a 1-minute daily limit instead of blocking them (a paused Google Messages keeps the texts that arrive), then put each app's earlier setting back, unless a parent changed it in the Family Link app since |
 | `familylink.block_device_for_school` | Block every app except an essentials whitelist (dialer, messages, settings, maps, ...) plus your own additions |
 | `familylink.unblock_all_apps` | Unblock every hidden app |
 | `familylink.add_time_bonus` | Add 1 to 1440 bonus minutes to a device |
+| `familylink.reset_bonus` | End every bonus of the day on a device |
 | `familylink.set_daily_limit` | Set today's quota on a device, or a weekday's weekly quota with `day` (0 disables the device for the day) |
 | `familylink.enable_daily_limit` / `familylink.disable_daily_limit` | Toggle the daily screen time limit |
 | `familylink.enable_bedtime` / `familylink.disable_bedtime` | Toggle bedtime, effective tonight (weekly toggle plus a same-day override) |

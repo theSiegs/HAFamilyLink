@@ -274,7 +274,8 @@ def test_device_daily_screen_time_sensor():
     )
 
     assert sensor.unique_id == f"{DOMAIN}_{child_id}_{device_id}_daily_screen_time"
-    assert sensor.name == f"{device_name} Daily Screen Time"
+    assert sensor.has_entity_name
+    assert sensor.name == "Daily Screen Time"
     assert sensor.native_value == 30.0
     assert sensor.native_unit_of_measurement == UnitOfTime.MINUTES
     assert sensor.device_class == SensorDeviceClass.DURATION

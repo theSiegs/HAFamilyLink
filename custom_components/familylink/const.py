@@ -113,6 +113,7 @@ SERVICE_SET_APP_DAILY_LIMIT: Final = "set_app_daily_limit"
 
 # Time management services
 SERVICE_ADD_TIME_BONUS: Final = "add_time_bonus"
+SERVICE_RESET_BONUS: Final = "reset_bonus"
 SERVICE_ENABLE_BEDTIME: Final = "enable_bedtime"
 SERVICE_DISABLE_BEDTIME: Final = "disable_bedtime"
 SERVICE_ENABLE_SCHOOL_TIME: Final = "enable_school_time"

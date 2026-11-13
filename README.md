@@ -90,6 +90,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<device>_daily_limit` | Device | Configured daily quota in minutes |
 | `sensor.<device>_active_bonus` | Device | Active bonus minutes (0 when none) |
 | `sensor.<device>_daily_screen_time` | Device | Today's screen time on this device in minutes, per-app breakdown in attributes; unknown while the data is missing |
+| `sensor.<device>_last_activity` | Device (diagnostic) | When Google last heard from the device: a check-in, not proof the child used it |
 | `sensor.<device>_battery_level` | Device | Battery of this device in percent, no GPS needed; unavailable while Google reports no level |
 | `binary_sensor.<device>_bedtime_active`, `_school_time_active` | Device | Currently inside the bedtime / school time window |
 | `binary_sensor.<device>_daily_limit_reached` | Device | Daily limit used up (ignores bonus time) |

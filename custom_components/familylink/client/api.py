@@ -1537,6 +1537,9 @@ class FamilyLinkClient:
 							"schooltime_active": False,
 							"bonus_minutes": 0,
 							"bonus_override_id": None,
+							# When the bonus was granted (ms since epoch), from Home
+							# Assistant or the Family Link app alike; None without one
+							"bonus_granted_ms": None,
 							"lock_override": lock_override,
 							# Account that created the device's override (lock, unlock
 							# or bonus): strict mode names it, to tell a parent's click
@@ -1579,6 +1582,9 @@ class FamilyLinkClient:
 									if isinstance(value, str) and value.isdigit():
 										bonus_seconds = int(value) // 1000
 
+								created = device_data[0][1]
+								if isinstance(created, (str, int)) and str(created).isdigit():
+									device_info["bonus_granted_ms"] = int(created)
 								if bonus_seconds is not None:
 									device_info["bonus_override_id"] = override_id
 									device_info["bonus_minutes"] = bonus_seconds // 60

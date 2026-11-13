@@ -4623,8 +4623,15 @@ class FamilyLinkClient:
 	WEBSITE_FILTER_RESOURCE = "124"
 	WEBSITE_FILTER_APPROVED_ONLY = "approved_only"
 	WEBSITE_FILTER_FILTERED = "filtered"
-	WEBSITE_FILTER_VALUES = {WEBSITE_FILTER_APPROVED_ONLY: "2", WEBSITE_FILTER_FILTERED: "3"}
-	WEBSITE_FILTER_READ_NAMES = {"safeSites": WEBSITE_FILTER_FILTERED, "blockByDefault": WEBSITE_FILTER_APPROVED_ONLY}
+	# "1" = all sites, no filter ("allowByDefault"), confirmed live 2026-10-24
+	WEBSITE_FILTER_ALL_SITES = "all_sites"
+	WEBSITE_FILTER_VALUES = {WEBSITE_FILTER_ALL_SITES: "1", WEBSITE_FILTER_APPROVED_ONLY: "2", WEBSITE_FILTER_FILTERED: "3"}
+	WEBSITE_FILTER_READ_NAMES = {
+		"allowByDefault": WEBSITE_FILTER_ALL_SITES,
+		"safeSites": WEBSITE_FILTER_FILTERED,
+		"blockByDefault": WEBSITE_FILTER_APPROVED_ONLY,
+	}
+	WEBSITE_FILTER_WRITE_NAMES = {level: name for name, level in WEBSITE_FILTER_READ_NAMES.items()}
 
 	@classmethod
 	def website_filter_level(cls, read_name: Any) -> str | None:
@@ -4678,7 +4685,8 @@ class FamilyLinkClient:
 	async def async_set_website_filter_level(self, account_id: str, level: str) -> dict[str, Any]:
 		"""Switch the child's Chrome web filter mode (issue #211), then read the lists back.
 
-		``level`` is WEBSITE_FILTER_APPROVED_ONLY or WEBSITE_FILTER_FILTERED.
+		``level`` is WEBSITE_FILTER_ALL_SITES, WEBSITE_FILTER_APPROVED_ONLY or
+		WEBSITE_FILTER_FILTERED.
 		Returns the lists as async_get_website_restrictions does, read after
 		the change so ``filter_level`` is what Google now holds.
 		"""

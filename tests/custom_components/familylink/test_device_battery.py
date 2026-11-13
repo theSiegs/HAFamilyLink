@@ -10,6 +10,7 @@ import pytest
 from custom_components.familylink.client.api import FamilyLinkClient
 from custom_components.familylink.const import DOMAIN
 from custom_components.familylink.coordinator import FamilyLinkDataUpdateCoordinator
+from custom_components.familylink.usage_tracker import UsageGrowthTracker
 from custom_components.familylink.exceptions import NetworkError, SessionExpiredError
 from custom_components.familylink.sensor import FamilyLinkDeviceBatterySensor
 
@@ -71,6 +72,8 @@ def _coordinator(batteries: AsyncMock) -> FamilyLinkDataUpdateCoordinator:
     coordinator._pending_time_limit_states = {}
     coordinator._async_child_websites = AsyncMock(return_value=None)
     coordinator._async_child_play_settings = AsyncMock(return_value=None)
+    coordinator._usage_growth = UsageGrowthTracker()
+    coordinator._usage_refresh = 0
     return coordinator
 
 

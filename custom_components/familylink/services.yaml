@@ -268,6 +268,32 @@ add_time_bonus:
       selector:
         text:
 
+reset_bonus:
+  name: Reset Bonus
+  description: "End every time bonus of the day on one device, the same as the device's Reset Bonus button. Bonuses added in the Family Link app end too. Returns how many bonuses were cancelled (0 when there was none). Give a Family Link entity of the device, or device_id."
+  fields:
+    entity_id:
+      name: Device Entity
+      description: Any Family Link entity of the device (its switch, Active Bonus sensor or Reset Bonus button)
+      required: false
+      selector:
+        entity:
+          integration: familylink
+    device_id:
+      name: Device ID (manual)
+      description: Device ID (device token) - only needed if not using the entity selector
+      required: false
+      example: "ABCD1234567890"
+      selector:
+        text:
+    child_id:
+      name: Child ID (manual)
+      description: Child's user ID - only needed if not using the entity selector
+      required: false
+      example: "123456789012345678901"
+      selector:
+        text:
+
 enable_bedtime:
   name: Enable Bedtime
   description: Enable bedtime (downtime) restrictions for a child. You can either select an entity OR provide child_id manually.

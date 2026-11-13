@@ -1819,7 +1819,8 @@ class FamilyLinkDeviceBatterySensor(ChildDataMixin, CoordinatorEntity, SensorEnt
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 		self._device_id = device_id
 		self._device_name = device_name
-		self._attr_name = f"{device_name} Battery Level"
+		self._attr_has_entity_name = True
+		self._attr_name = "Battery Level"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_battery_level"
 
 	@property

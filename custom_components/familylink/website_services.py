@@ -159,7 +159,14 @@ async def async_setup_website_services(hass: HomeAssistant, coordinator: Any) ->
 		child_id = _resolve_child(hass, call)
 		lists = await _read(child_id)
 		coordinator.store_websites(child_id, lists)
-		return {"child_id": child_id, **lists}
+		# The blocked entries a sync_site_list list added (and still tracks), so a caller can
+		# tell them from the ones a parent added by hand
+		async with store_lock:
+			synced = (await store.async_load() or {}).get(child_id, {})
+		blocked = set(lists.get("blocked") or [])
+		by_url = {url: sorted(set(patterns) & blocked) for url, patterns in synced.items()}
+		from_list = sorted({p for patterns in by_url.values() for p in patterns})
+		return {"child_id": child_id, **lists, "from_list": from_list, "from_list_by_url": by_url}
 
 	async def handle_set_filter_level(call: ServiceCall) -> ServiceResponse:
 		child_id = _resolve_child(hass, call)

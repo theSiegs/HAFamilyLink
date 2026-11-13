@@ -36,6 +36,7 @@ LEVEL_TO_OPTION = {0: OPTION_ANYONE, **{level: option for option, level in OPTIO
 
 # Chrome web filter modes, as the app names them ("Google Chrome and Web" > "Filters"), issue #211
 WEB_FILTER_OPTIONS = {
+    "Allow all sites": FamilyLinkClient.WEBSITE_FILTER_ALL_SITES,
     "Only approved sites": FamilyLinkClient.WEBSITE_FILTER_APPROVED_ONLY,
     "Try to block explicit sites": FamilyLinkClient.WEBSITE_FILTER_FILTERED,
 }
@@ -69,11 +70,12 @@ async def async_setup_entry(
 
 
 class FamilyLinkWebFilterSelect(CoordinatorEntity, SelectEntity):
-    """The child's Chrome web filter mode: only approved sites, or every site with Google's filter (#211).
+    """The child's Chrome web filter mode: all sites, only approved sites, or every site with Google's filter (#211).
 
     Reads the filter level the coordinator fetched with the site lists, so it
     shares their refresh interval and cache; selecting an option writes it and
-    reads the lists back at once.
+    reads the lists back at once. Google can still answer that read with the
+    previous mode, so the mode just set is shown until the next read.
     """
 
     _attr_options = list(WEB_FILTER_OPTIONS)
@@ -89,7 +91,8 @@ class FamilyLinkWebFilterSelect(CoordinatorEntity, SelectEntity):
         super().__init__(coordinator)
         self._child_id = child_id
         self._child_name = child_name
-        self._attr_name = f"{child_name} Web Filter"
+        self._attr_has_entity_name = True
+        self._attr_name = "Web Filter"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_web_filter"
 
     @property
@@ -141,6 +144,10 @@ class FamilyLinkWebFilterSelect(CoordinatorEntity, SelectEntity):
         except Exception as err:
             # Told to the caller (UI, automation trace), not only logged
             raise HomeAssistantError(f"Failed to set the web filter to '{option}' for {self._child_name}: {err}") from err
+        # A read right after a change can still give the previous mode: show
+        # the mode just set until the next read of the lists
+        if FamilyLinkClient.website_filter_level(lists.get("filter_level")) != level:
+            lists = {**lists, "filter_level": FamilyLinkClient.WEBSITE_FILTER_WRITE_NAMES[level]}
         self.coordinator.store_websites(self._child_id, lists)
         _LOGGER.info(f"Set the web filter to '{option}' for {self._child_name}")
         await self.coordinator.async_request_refresh()

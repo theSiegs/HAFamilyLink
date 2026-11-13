@@ -80,7 +80,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_play_purchase_approvals`, `_play_apps_games_rating` | Child | Google Play settings (Family Link "Controls" > "Google Play"), read-only: which purchases and downloads need a parent's approval (`all_content`, `paid_content`, `in_app_purchases`, `never`) and the highest apps & games rating allowed, as Google labels it for the account's region (e.g. `PEGI 16`); Google's own value and the list of choices in attributes; read every 15 minutes, two Google calls per child |
 | `select.<child>_play_purchase_approvals`, `_play_apps_games_rating` | Child | The same two Google Play settings, to change from Home Assistant: the approval mode, and the apps & games rating among the ones Google offers the child. A change is kept only once Google's answer confirms it |
 | `select.<child>_allowed_calls_texts` | Child | Choose who can call and text the child: anyone, only contacts you add, or contacts you add and limited groups |
-| `select.<child>_web_filter` | Child | Chrome web filter mode: only the approved sites, or every site with Google's explicit-content filter |
+| `select.<child>_web_filter` | Child | Chrome web filter mode: all sites, only the approved sites, or every site with Google's explicit-content filter. With the school time sensors, an automation can open the web for homework and go back to approved sites after |
 | `switch.<child>_strict_mode` | Child | Strict mode on or off for this child (see below). Attributes: rules in force, last corrective action, count |
 | `number.<child>_<weekday>_limit` | Child | Screen time quota of that weekday in minutes, as the weekly limits screen of the app shows it (the weekly value, or today's override when Google applies one; see the `source` and `applied_override` attributes). Setting it writes the weekly quota of that weekday, as the weekly limits screen of the app does; today's entity also posts today's override on every device so the change applies at once |
 | `time.<child>_<weekday>_bedtime_start`, `_bedtime_end` | Child | Start and end of that weekday's bedtime in the weekly schedule. Setting one rewrites the slot (the other bound is kept) |
@@ -140,7 +140,7 @@ Enable it with the **Strict mode** option of the integration (default for every 
 | `familylink.enable_school_time` / `familylink.disable_school_time` | Toggle school time |
 | `familylink.get_sites`, `familylink.block_site`, `familylink.allow_site`, `familylink.remove_site` | Read and edit the child's Chrome site lists (approved and blocked sites, wildcards allowed) |
 | `familylink.sync_site_list` | Keep the blocked sites in step with a published list of domains (https, administrators only); removes only what the list added, `stop: true` takes it all back |
-| `familylink.set_filter_level` | Switch the Chrome web filter between the approved sites only and every site with Google's filter (`approved_only` / `filtered`); also `select.<child>_web_filter` |
+| `familylink.set_filter_level` | Switch the Chrome web filter between all sites, the approved sites only and every site with Google's filter (`all_sites` / `approved_only` / `filtered`); also `select.<child>_web_filter` |
 | `familylink.refresh_location` | Force a fresh GPS fix (uses more battery than the regular polling) |
 | `familylink.ring_device` | Make a device ring so it can be found |
 | `familylink.set_update_interval` | Change the polling interval until the next restart (e.g. slower at night) |

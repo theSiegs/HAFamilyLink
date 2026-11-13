@@ -117,7 +117,7 @@ async def test_filter_level_refusal_is_an_error() -> None:
         await client.async_set_website_filter_level("123", FamilyLinkClient.WEBSITE_FILTER_FILTERED)
 
 
-@pytest.mark.parametrize(("read", "level"), [("safeSites", "filtered"), ("blockByDefault", "approved_only"), ("something", None), (None, None)])
+@pytest.mark.parametrize(("read", "level"), [("allowByDefault", "all_sites"), ("safeSites", "filtered"), ("blockByDefault", "approved_only"), ("something", None), (None, None)])
 def test_filter_level_read_names(read, level) -> None:
     assert FamilyLinkClient.website_filter_level(read) == level
 

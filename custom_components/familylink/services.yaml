@@ -801,7 +801,7 @@ remove_site:
 
 set_filter_level:
   name: Set Web Filter Level
-  description: "Switch the child's Chrome web filter between the approved sites only (the allow list) and every site with Google's explicit-content filter, as under 'Google Chrome and Web' in the Family Link app. Applies to the child's Google account, so to every Chrome the child is signed in to."
+  description: "Switch the child's Chrome web filter between every site with no filter, the approved sites only (the allow list) and every site with Google's explicit-content filter, as under 'Google Chrome and Web' in the Family Link app. Applies to the child's Google account, so to every Chrome the child is signed in to."
   fields:
     entity_id:
       name: Child Entity
@@ -819,12 +819,13 @@ set_filter_level:
         text:
     filter_level:
       name: Filter Level
-      description: "approved_only: only the approved sites can be opened. filtered: every site, with Google's explicit-content filter."
+      description: "all_sites: every site, no filter. approved_only: only the approved sites can be opened. filtered: every site, with Google's explicit-content filter."
       required: true
       example: "filtered"
       selector:
         select:
           options:
+            - all_sites
             - approved_only
             - filtered
 sync_site_list:

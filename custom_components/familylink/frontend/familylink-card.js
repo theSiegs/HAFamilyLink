@@ -31,7 +31,7 @@ const STR = {
 		bed_from: 'Bedtime from', bed_to: 'Bedtime until', steps: 'In 15 min steps', school_from: 'School from', school_to: 'School until',
 		pick_device: 'Choose a phone or tablet, not the child.',
 		pause: 'Paused', pause_sub: 'Stays installed, resumes with its previous rule', cur_paused: 'Currently paused',
-		web: 'Web', web_hint: "Chrome on all of the child's devices", f_approved: 'Only approved sites', f_filtered: 'Try to block explicit sites',
+		web: 'Web', web_hint: "Chrome on all of the child's devices", f_all: 'Allow all sites', f_approved: 'Only approved sites', f_filtered: 'Try to block explicit sites',
 		site_ph: 'example.com', allow: 'Allow', deny: 'Block', approved: 'Approved sites', blocked_sites: 'Blocked sites', no_site: 'None',
 		remove: 'Remove', sites: 'Websites', add_site: 'Add a website', several: 'One domain, or several separated by spaces',
 		s_allow: 'Always allowed', s_allow_sub: 'Even when the web filter would block it', s_block: 'Always blocked', s_block_sub: 'Chrome will refuse to open it',
@@ -98,7 +98,7 @@ const STR = {
 		bed_from: 'Coucher à partir de', bed_to: "Coucher jusqu'à", steps: 'Par pas de 15 min', school_from: 'École à partir de', school_to: "École jusqu'à",
 		pick_device: "Choisissez un téléphone ou une tablette, pas l'enfant.",
 		pause: 'En pause', pause_sub: "Reste installée, reprend avec sa règle d'avant", cur_paused: 'Actuellement en pause',
-		web: 'Web', web_hint: "Chrome sur tous les appareils de l'enfant", f_approved: 'Sites approuvés seulement', f_filtered: 'Bloquer les sites explicites',
+		web: 'Web', web_hint: "Chrome sur tous les appareils de l'enfant", f_all: 'Autoriser tous les sites', f_approved: 'Sites approuvés seulement', f_filtered: 'Bloquer les sites explicites',
 		site_ph: 'exemple.fr', allow: 'Autoriser', deny: 'Bloquer', approved: 'Sites autorisés', blocked_sites: 'Sites bloqués', no_site: 'Aucun',
 		remove: 'Retirer', sites: 'Sites web', add_site: 'Ajouter un site', several: 'Un domaine, ou plusieurs séparés par des espaces',
 		s_allow: 'Toujours autorisé', s_allow_sub: 'Même si le filtre web le bloquerait', s_block: 'Toujours bloqué', s_block_sub: 'Chrome refusera de l\'ouvrir',
@@ -485,7 +485,7 @@ class FamilyLinkCard extends HTMLElement {
 			.sort((a, b) => a[0].localeCompare(b[0]))
 			.map(([x, kind]) => `<div class="site" data-site="${esc(x)}" data-kind="${kind}"><span>${esc(x)}</span><em class="${kind}">${kind === 'allow' ? t('allowed_tag') : t('blocked_tag')}</em></div>`).join('');
 		return `
-			${filter ? `<div class="pills">${level('Only approved sites', t('f_approved'))}${level('Try to block explicit sites', t('f_filtered'))}</div>` : ''}
+			${filter ? `<div class="pills">${level('Allow all sites', t('f_all'))}${level('Only approved sites', t('f_approved'))}${level('Try to block explicit sites', t('f_filtered'))}</div>` : ''}
 			<div class="hint">${t('web_hint')}</div>
 			${this._webError ? `<div class="err">${esc(this._webError)}</div>` : ''}
 			<div class="sitehead"><small>${t('sites')}</small><button class="round" data-add-site data-tip="${esc(t('add_site'))}" aria-label="${esc(t('add_site'))}"><ha-icon icon="mdi:plus"></ha-icon></button></div>

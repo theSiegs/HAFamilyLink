@@ -70,6 +70,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_screen_time_formatted` | Child | The same value as `HH:MM:SS` text |
 | `sensor.<child>_installed_apps`, `_blocked_apps`, `_apps_with_time_limits`, `_apps_without_limits`, `_always_allowed_apps` | Child | App counts, with the matching app lists in attributes |
 | `sensor.<child>_top_app_1` to `_top_app_10` | Child | Today's most-used apps, usage in minutes |
+| `sensor.<child>_<app>_usage_today`, `sensor.<device>_<app>_usage_today` | Child, device | Minutes one app was used today: the 8 apps the child used most (all devices together, `by_device` in attributes), and the 5 used most on each device that takes no time limits, such as a TV or a watch. `last_7_days_minutes` in attributes. A TV several children use is one device per child: rename them (for example "Lounge TV (Alex)") to tell them apart. See [Usage by hour](#usage-by-hour) |
 | `sensor.<child>_device_count` | Child | Number of supervised devices |
 | `sensor.<child>_child_info` | Child | Profile: name, email, birthday, age band |
 | `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location (see `sensor.<device>_battery_level` for each device) |
@@ -98,6 +99,28 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `button.<device>_ring` | Device | Ring the device to locate it |
 
 GPS entities are only created when location tracking is enabled in the integration options (off by default; each location poll may notify the child's device).
+
+### Usage by hour
+
+The app usage sensors count up through the day and start again at midnight, so Home Assistant keeps long-term statistics of them. A statistics graph with the `change` type and a one-hour period shows the minutes added per hour:
+
+```yaml
+type: statistics-graph
+title: YouTube by hour
+entities:
+  - sensor.alex_family_link_youtube_usage_today
+stat_types:
+  - change
+period: hour
+days_to_show: 7
+chart_type: bar
+```
+
+- **Which apps.** Each child gets the apps used most over the days Google returned (up to 30), and each device that takes no time limits (a Google TV or streamer, a watch) the apps used most on it. Launchers and system screens are left out. The integration options set how many (8 and 5 by default, 0 for none), the apps that always get a sensor and the apps that never do.
+- **What the hours mean.** Google reports a daily total per app and device, not when it was used, so the hour is the one in which Google received the usage: a phone uploads about every 5 minutes, a tablet every 15 to 20. Usage a device uploads after midnight counts for the day before, which these sensors no longer follow: the last minutes of a late evening can be missing from the graph (the daily screen time sensor's `history` has them).
+- **History** starts when a sensor is added; earlier days cannot be filled in.
+- **A sensor stays** once it has been added, also when its app drops out of the ranking. To drop one, disable it: a deleted one comes back while its app ranks.
+- **The value never goes down within a day**, also across a restart, because Home Assistant would read a drop as a new count and count the minutes twice.
 
 ### Strict mode
 

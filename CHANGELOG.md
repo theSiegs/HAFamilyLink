@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Fork only] - theSiegs/HAFamilyLink, on top of 2.9.0rc2
+## [Fork only] - theSiegs/HAFamilyLink, on top of 2.9.0rc3
 
-Not in upstream; kept on the fork's `ha/combined` branch.
+Not in upstream; kept on the fork's `ha/combined-next-2` branch.
 
 ### Added
 - **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.

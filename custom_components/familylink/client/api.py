@@ -531,10 +531,20 @@ class FamilyLinkClient:
 			app_breakdown = {}
 			device_screen_time: dict[str, dict[str, Any]] = {}
 			device_app_seconds: dict[tuple[str, str], float] = {}
+			# Every day Google returns (up to the last 30 days), not just target_date
+			daily_totals: dict[str, float] = {}
+			# The same days per app, and per app on each device: what ranks the apps
+			app_totals: dict[str, float] = {}
+			device_app_totals: dict[str, dict[str, float]] = {}
+			# Per app over the seven days before target_date, and per app on each device
+			app_week_totals: dict[str, float] = {}
+			device_app_week_totals: dict[str, dict[str, float]] = {}
+			week_days = {(target_date.date() - timedelta(days=n)).isoformat() for n in range(1, 8)}
 			unattributed_sessions = 0
 
-			# Extract devices map: deviceId -> friendlyName/model
-			device_names: dict[str, str] = {}
+			# Extract devices map: deviceId -> friendlyName/model. On a failed
+			# fetch the coordinator passes the names it had (cachedDeviceNames).
+			device_names: dict[str, str] = dict(data.get("cachedDeviceNames") or {})
 			for dev in data.get("deviceInfo", []):
 				dev_id = dev.get("deviceId")
 				disp = dev.get("displayInfo", {})
@@ -556,20 +566,38 @@ class FamilyLinkClient:
 				_LOGGER.debug(f"First session example: {all_sessions[0]}")
 
 			for session in all_sessions:
+				# Seconds in "1809.5s" format
+				try:
+					usage_seconds = float(session.get("usage", "0s").rstrip("s"))
+				except (AttributeError, ValueError, TypeError):
+					_LOGGER.debug("Invalid usage format: %s", session.get("usage"))
+					usage_seconds = 0
+
 				session_date = session.get("date", {})
+				try:
+					day_key = f"{session_date['year']:04d}-{session_date['month']:02d}-{session_date['day']:02d}"
+				except (AttributeError, KeyError, TypeError, ValueError):
+					day_key = None
+				if day_key:
+					daily_totals[day_key] = daily_totals.get(day_key, 0) + usage_seconds
+
+				ranked_package = (session.get("appId") or {}).get("androidAppPackageName")
+				if ranked_package:
+					ranked_device = session.get("deviceMudId")
+					sums = [(app_totals, device_app_totals)]
+					if day_key in week_days:
+						sums.append((app_week_totals, device_app_week_totals))
+					for per_app, per_device in sums:
+						per_app[ranked_package] = per_app.get(ranked_package, 0) + usage_seconds
+						if ranked_device:
+							on_device = per_device.setdefault(ranked_device, {})
+							on_device[ranked_package] = on_device.get(ranked_package, 0) + usage_seconds
 
 				# Check if this session is for the target date
 				if (session_date.get("year") == target_date.year and
 					session_date.get("month") == target_date.month and
 					session_date.get("day") == target_date.day):
 
-					# Extract seconds from "1809.5s" format
-					usage_str = session.get("usage", "0s")
-					try:
-						usage_seconds = float(usage_str.rstrip("s"))
-					except (ValueError, TypeError):
-						_LOGGER.debug("Invalid usage format: %s", usage_str)
-						usage_seconds = 0
 					total_seconds += usage_seconds
 
 					# Track per-app usage
@@ -667,6 +695,13 @@ class FamilyLinkClient:
 				"device_names": device_names,
 				"app_device_usage": app_device_usage,
 				"date": target_date.date(),
+				"daily_totals": dict(sorted(daily_totals.items())),
+				"app_totals": app_totals,
+				"device_app_totals": device_app_totals,
+				"app_week_totals": app_week_totals,
+				"device_app_week_totals": device_app_week_totals,
+				# When Google last received usage from the child's devices (epoch ms)
+				"data_refreshed_ms": data.get("lastActivityRefreshTimestampMillis"),
 			}
 
 		except SessionExpiredError:
@@ -761,6 +796,11 @@ class FamilyLinkClient:
 					return None
 
 				location_array = child_data[2] if len(child_data) > 2 else None
+				# A child with no device sharing location gets no location array:
+				# that's normal, not worth a warning on every poll
+				if not location_array:
+					_LOGGER.debug(f"No location shared for child {account_id}")
+					return None
 				if not isinstance(location_array, list) or len(location_array) < 2:
 					_LOGGER.warning(f"Invalid location array for child {account_id}")
 					return None
@@ -1537,6 +1577,9 @@ class FamilyLinkClient:
 							"schooltime_active": False,
 							"bonus_minutes": 0,
 							"bonus_override_id": None,
+							# When the bonus was granted (ms since epoch), from Home
+							# Assistant or the Family Link app alike; None without one
+							"bonus_granted_ms": None,
 							"lock_override": lock_override,
 							# Account that created the device's override (lock, unlock
 							# or bonus): strict mode names it, to tell a parent's click
@@ -1579,6 +1622,9 @@ class FamilyLinkClient:
 									if isinstance(value, str) and value.isdigit():
 										bonus_seconds = int(value) // 1000
 
+								created = device_data[0][1]
+								if isinstance(created, (str, int)) and str(created).isdigit():
+									device_info["bonus_granted_ms"] = int(created)
 								if bonus_seconds is not None:
 									device_info["bonus_override_id"] = override_id
 									device_info["bonus_minutes"] = bonus_seconds // 60
@@ -4583,8 +4629,15 @@ class FamilyLinkClient:
 	WEBSITE_FILTER_RESOURCE = "124"
 	WEBSITE_FILTER_APPROVED_ONLY = "approved_only"
 	WEBSITE_FILTER_FILTERED = "filtered"
-	WEBSITE_FILTER_VALUES = {WEBSITE_FILTER_APPROVED_ONLY: "2", WEBSITE_FILTER_FILTERED: "3"}
-	WEBSITE_FILTER_READ_NAMES = {"safeSites": WEBSITE_FILTER_FILTERED, "blockByDefault": WEBSITE_FILTER_APPROVED_ONLY}
+	# "1" = all sites, no filter ("allowByDefault"), confirmed live 2026-10-24
+	WEBSITE_FILTER_ALL_SITES = "all_sites"
+	WEBSITE_FILTER_VALUES = {WEBSITE_FILTER_ALL_SITES: "1", WEBSITE_FILTER_APPROVED_ONLY: "2", WEBSITE_FILTER_FILTERED: "3"}
+	WEBSITE_FILTER_READ_NAMES = {
+		"allowByDefault": WEBSITE_FILTER_ALL_SITES,
+		"safeSites": WEBSITE_FILTER_FILTERED,
+		"blockByDefault": WEBSITE_FILTER_APPROVED_ONLY,
+	}
+	WEBSITE_FILTER_WRITE_NAMES = {level: name for name, level in WEBSITE_FILTER_READ_NAMES.items()}
 
 	@classmethod
 	def website_filter_level(cls, read_name: Any) -> str | None:
@@ -4638,7 +4691,8 @@ class FamilyLinkClient:
 	async def async_set_website_filter_level(self, account_id: str, level: str) -> dict[str, Any]:
 		"""Switch the child's Chrome web filter mode (issue #211), then read the lists back.
 
-		``level`` is WEBSITE_FILTER_APPROVED_ONLY or WEBSITE_FILTER_FILTERED.
+		``level`` is WEBSITE_FILTER_ALL_SITES, WEBSITE_FILTER_APPROVED_ONLY or
+		WEBSITE_FILTER_FILTERED.
 		Returns the lists as async_get_website_restrictions does, read after
 		the change so ``filter_level`` is what Google now holds.
 		"""

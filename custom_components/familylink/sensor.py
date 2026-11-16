@@ -14,8 +14,10 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -29,6 +31,13 @@ from .const import (
     LOGGER_NAME,
 )
 from .client.api import FamilyLinkClient
+from .app_usage import (
+    AppUsageSettings,
+    app_usage_unique_id,
+    parse_app_usage_unique_id,
+    top_packages,
+)
+from .app_pause import pause_intact
 from .coordinator import FamilyLinkDataUpdateCoordinator
 from .devices import async_prune_entities, device_supports, ensure_child_device, via_child
 from .schedules import WINDOW_BEDTIME, describe_time_at, next_scheduled_window
@@ -143,10 +152,95 @@ async def async_setup_entry(
                     entities.append(entity)
                 else:
                     prune.append(entity.unique_id)
+            # Every device checks in with Google, whatever it supports
+            entities.append(FamilyLinkDeviceLastActivitySensor(coordinator, child_id, child_name, device_id, device_name))
 
     async_prune_entities(hass, "sensor", prune)
+
+    # App usage sensors: the apps used most, added as the data shows them. One
+    # that was added once stays (restored from the registry), also when it falls
+    # out of the ranking, so its statistics keep a sensor. Disable one to drop
+    # it: a deleted one comes back while its app ranks.
+    settings = AppUsageSettings.from_options(entry.options)
+    known_app_usage: set[str] = set()
+    remembered = {
+        parsed
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if entity.domain == "sensor" and (parsed := parse_app_usage_unique_id(entity.unique_id))
+    }
+
+    def _add_app_usage_sensors() -> None:
+        if new := new_app_usage_sensors(coordinator, known_app_usage, remembered, settings):
+            async_add_entities(new)
+
+    entities.extend(new_app_usage_sensors(coordinator, known_app_usage, remembered, settings))
+    entry.async_on_unload(coordinator.async_add_listener(_add_app_usage_sensors))
+
     _LOGGER.debug(f"Created {len(entities)} total sensor entities")
     async_add_entities(entities, update_before_add=True)
+
+
+class FamilyLinkDeviceLastActivitySensor(CoordinatorEntity, SensorEntity):
+    """When Google last heard from a device (its lastActivityTimeMillis).
+
+    Google sets it when the device checks in, which is not the same as the child
+    using it: seen live, it matched the minute school time started on a phone.
+    It tells a device that is on and connected from one that has gone quiet.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:clock-check-outline"
+
+    def __init__(
+        self,
+        coordinator: FamilyLinkDataUpdateCoordinator,
+        child_id: str,
+        child_name: str,
+        device_id: str,
+        device_name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._child_id = child_id
+        self._device_id = device_id
+        self._device_name = device_name
+        self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_last_activity"
+        self._attr_has_entity_name = True
+        self._attr_name = "Last Activity"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link this sensor to the device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._child_id}_{self._device_id}")},
+            name=self._device_name,
+            manufacturer="Google",
+            model="Family Link Device",
+            **via_child(self.coordinator, self._child_id),
+        )
+
+    def _device(self) -> dict[str, Any] | None:
+        for child_data in (self.coordinator.data or {}).get("children_data", []):
+            if child_data.get("child_id") == self._child_id:
+                for device in child_data.get("devices", []):
+                    if device.get("id") == self._device_id:
+                        return device
+        return None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """The last check-in, None when Google gave none."""
+        millis = (self._device() or {}).get("last_activity")
+        try:
+            return dt_util.utc_from_timestamp(int(millis) / 1000)
+        except (TypeError, ValueError, OverflowError, OSError):
+            return None
+
+    @property
+    def available(self) -> bool:
+        """Available while the device is in the data."""
+        return self.coordinator.last_update_success and self._device() is not None
 
 
 class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
@@ -173,7 +267,8 @@ class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
         self._device_id = device_id
         self._device_name = device_name
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_daily_screen_time"
-        self._attr_name = f"{device_name} Daily Screen Time"
+        self._attr_has_entity_name = True
+        self._attr_name = "Daily Screen Time"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -254,12 +349,7 @@ class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
                         child_data = c
                         break
 
-            app_names: dict[str, str] = {}
-            if child_data:
-                for app in child_data.get("apps", []):
-                    pkg = app.get("packageName", "")
-                    if pkg:
-                        app_names[pkg] = app.get("title", pkg)
+            details = _app_details(child_data)
 
             sorted_apps = sorted(app_breakdown.items(), key=lambda x: x[1], reverse=True)
             apps_list = []
@@ -267,12 +357,16 @@ class FamilyLinkDeviceDailyScreenTimeSensor(CoordinatorEntity, SensorEntity):
                 h = int(secs // 3600)
                 m = int((secs % 3600) // 60)
                 s = int(secs % 60)
-                apps_list.append({
-                    "name": app_names.get(pkg, pkg),
+                name, icon_url = details.get(pkg, (pkg, None))
+                entry = {
+                    "name": name,
                     "package": pkg,
                     "time": f"{h:02d}:{m:02d}:{s:02d}",
                     "minutes": round(secs / 60, 1),
-                })
+                }
+                if icon_url:
+                    entry["icon_url"] = icon_url
+                apps_list.append(entry)
             truncated_apps, was_truncated = _truncate_app_list(apps_list, attributes)
             attributes["apps"] = truncated_apps
             if was_truncated:
@@ -301,7 +395,8 @@ class ScreenTimeRemainingSensor(CoordinatorEntity, SensorEntity):
         self._child_name = child_name
         self._device_id = device_id
         self._device_name = device_name
-        self._attr_name = f"{device_name} Screen Time Remaining"
+        self._attr_has_entity_name = True
+        self._attr_name = "Screen Time Remaining"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_screen_time_remaining"
         self._attr_icon = "mdi:clock-time-four-outline"
         self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
@@ -413,7 +508,8 @@ class NextRestrictionSensor(CoordinatorEntity, SensorEntity):
         self._child_name = child_name
         self._device_id = device_id
         self._device_name = device_name
-        self._attr_name = f"{device_name} Next Restriction"
+        self._attr_has_entity_name = True
+        self._attr_name = "Next Restriction"
         self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_next_restriction"
         self._attr_icon = "mdi:clock-alert-outline"
 
@@ -573,6 +669,32 @@ class NextRestrictionSensor(CoordinatorEntity, SensorEntity):
         return attributes
 
 
+def _usage_totals_attributes(screen_time: dict[str, Any]) -> dict[str, Any]:
+	"""Earlier days of usage and when Google last got usage, from the appsandusage answer.
+
+	Google returns a day's usage per app and device for up to the last 30 days
+	and leaves out a day without any, so a missing day reads as 0. A device that
+	uploads late can still change a day after the fact.
+	"""
+	attributes: dict[str, Any] = {}
+	daily_totals = screen_time.get("daily_totals") or {}
+	today = screen_time.get("date")
+	if daily_totals and today:
+		# The seven days before today, so the figures do not move while today does
+		days = [str(today - timedelta(days=n)) for n in range(1, 8)]
+		attributes["yesterday_minutes"] = round(daily_totals.get(days[0], 0) / 60, 1)
+		attributes["last_7_days_minutes"] = round(sum(daily_totals.get(d, 0) for d in days) / 60, 1)
+		attributes["history"] = {d: round(s / 60, 1) for d, s in daily_totals.items() if d != str(today)}
+
+	refreshed_ms = screen_time.get("data_refreshed_ms")
+	if refreshed_ms:
+		try:
+			attributes["data_updated"] = dt_util.utc_from_timestamp(int(refreshed_ms) / 1000).isoformat()
+		except (TypeError, ValueError):
+			pass
+	return attributes
+
+
 class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 	"""Sensor for daily screen time in minutes."""
 
@@ -581,6 +703,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 	_attr_state_class = SensorStateClass.TOTAL_INCREASING
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-outline"
+	# Up to 30 days, rewritten with every state change: readable in templates, not stored
+	_unrecorded_attributes = frozenset({"history"})
 
 	def __init__(
 		self,
@@ -593,7 +717,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 
 		self._sensor_type = sensor_type
-		self._attr_name = f"{child_name} Daily Screen Time"
+		self._attr_has_entity_name = True
+		self._attr_name = "Daily Screen Time"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_screen_time_{sensor_type}"
 
 	@property
@@ -645,6 +770,8 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 			"app_count": len(screen_time.get("app_breakdown", {})),
 		}
 
+		attributes.update(_usage_totals_attributes(screen_time))
+
 		# Add per-device screen time breakdown
 		device_screen_time = screen_time.get("device_screen_time", {})
 		if device_screen_time:
@@ -662,12 +789,7 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 		# Add all apps by usage (dynamically truncated to fit HA's 16KB limit)
 		app_breakdown = screen_time.get("app_breakdown", {})
 		if app_breakdown:
-			# Build package-to-name lookup from apps data
-			app_names: dict[str, str] = {}
-			for app in child_data.get("apps", []):
-				pkg = app.get("packageName", "")
-				if pkg:
-					app_names[pkg] = app.get("title", pkg)
+			details = _app_details(child_data)
 
 			sorted_apps = sorted(
 				app_breakdown.items(),
@@ -680,12 +802,16 @@ class FamilyLinkScreenTimeSensor(ChildDataMixin, CoordinatorEntity, SensorEntity
 				hours = int(seconds // 3600)
 				mins = int((seconds % 3600) // 60)
 				secs = int(seconds % 60)
-				app_list.append({
-					"name": app_names.get(package, package),
+				name, icon_url = details.get(package, (package, None))
+				entry = {
+					"name": name,
 					"package": package,
 					"time": f"{hours:02d}:{mins:02d}:{secs:02d}",
 					"minutes": round(seconds / 60, 1),
-				})
+				}
+				if icon_url:
+					entry["icon_url"] = icon_url
+				app_list.append(entry)
 
 			truncated_apps, was_truncated = _truncate_app_list(app_list, attributes)
 			attributes["apps"] = truncated_apps
@@ -709,7 +835,8 @@ class FamilyLinkScreenTimeFormattedSensor(ChildDataMixin, CoordinatorEntity, Sen
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 
-		self._attr_name = f"{child_name} Screen Time Formatted"
+		self._attr_has_entity_name = True
+		self._attr_name = "Screen Time Formatted"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_screen_time_formatted"
 
 	@property
@@ -773,7 +900,8 @@ class FamilyLinkAppCountSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Installed Apps"
+		self._attr_has_entity_name = True
+		self._attr_name = "Installed Apps"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_app_count"
 
 	@property
@@ -819,6 +947,16 @@ class FamilyLinkAppCountSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 MAX_ATTR_SIZE = 15000  # Stay under HA's 16KB state_attributes limit
 
 
+def _app_details(child_data: dict | None) -> dict[str, tuple[str, str | None]]:
+	"""Package name -> (title, icon URL) from the child's app list."""
+	details: dict[str, tuple[str, str | None]] = {}
+	for app in (child_data or {}).get("apps", []):
+		pkg = app.get("packageName")
+		if pkg:
+			details[pkg] = (app.get("title", pkg), app.get("iconUrl") or None)
+	return details
+
+
 def _truncate_app_list(apps: list[dict], base_attrs: dict) -> tuple[list[dict], bool]:
 	"""Dynamically truncate app list to fit within HA attribute size limit.
 
@@ -855,7 +993,8 @@ class FamilyLinkBlockedAppsSensor(ChildDataMixin, CoordinatorEntity, SensorEntit
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Blocked Apps"
+		self._attr_has_entity_name = True
+		self._attr_name = "Blocked Apps"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_blocked_apps"
 
 	@property
@@ -920,7 +1059,8 @@ class FamilyLinkWebsitesSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		"""Initialize the sensor; ``kind`` is "blocked" or "approved"."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 		self._kind = kind
-		self._attr_name = f"{child_name} {kind.capitalize()} Sites"
+		self._attr_has_entity_name = True
+		self._attr_name = f"{kind.capitalize()} Sites"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{kind}_sites"
 		self._attr_icon = "mdi:web-cancel" if kind == "blocked" else "mdi:web-check"
 
@@ -1031,7 +1171,8 @@ class FamilyLinkAppsWithLimitsSensor(ChildDataMixin, CoordinatorEntity, SensorEn
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Apps with Time Limits"
+		self._attr_has_entity_name = True
+		self._attr_name = "Apps with Time Limits"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_apps_with_limits"
 
 	@property
@@ -1078,12 +1219,29 @@ class FamilyLinkAppsWithLimitsSensor(ChildDataMixin, CoordinatorEntity, SensorEn
 			"child_id": self._child_id,
 			"child_name": self._child_name,
 			"count": len(apps_with_limits),
+			"paused_apps": self._paused_apps(apps),
 		}
 		truncated_apps, was_truncated = _truncate_app_list(apps_with_limits, base_attrs)
 		base_attrs["apps"] = truncated_apps
 		if was_truncated:
 			base_attrs["truncated"] = True
 		return base_attrs
+
+
+	def _paused_apps(self, apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+		"""Apps pause_app paused for this child, also those a parent changed since.
+
+		``pause_intact`` is False once the app's setting is no longer the pause
+		limit (a parent changed it in the Family Link app); ``prior`` is the
+		setting resume_app puts back while the pause is intact (minutes, -1 no
+		limit, -2 unlimited).
+		"""
+		saved = (getattr(self.coordinator, "paused_apps", None) or {}).get(self._child_id) or {}
+		by_package = {app.get("packageName"): app for app in apps}
+		return [
+			{"package": package, "pause_intact": pause_intact(by_package.get(package)), "prior": prior}
+			for package, prior in saved.items()
+		]
 
 
 class FamilyLinkAppsWithoutLimitsSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
@@ -1099,7 +1257,8 @@ class FamilyLinkAppsWithoutLimitsSensor(ChildDataMixin, CoordinatorEntity, Senso
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Apps Without Limits"
+		self._attr_has_entity_name = True
+		self._attr_name = "Apps Without Limits"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_apps_without_limits"
 
 	def _get_apps_without_limits(self) -> list[dict]:
@@ -1171,7 +1330,8 @@ class FamilyLinkAlwaysAllowedAppsSensor(ChildDataMixin, CoordinatorEntity, Senso
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Always Allowed Apps"
+		self._attr_has_entity_name = True
+		self._attr_name = "Always Allowed Apps"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_always_allowed_apps"
 
 	def _get_always_allowed_apps(self) -> list[dict]:
@@ -1242,7 +1402,8 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 		self._rank = rank
-		self._attr_name = f"{child_name} Top App #{rank}"
+		self._attr_has_entity_name = True
+		self._attr_name = f"Top App #{rank}"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_top_app_{rank}"
 
 	@property
@@ -1290,6 +1451,11 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		return len(app_breakdown) >= self._rank
 
 	@property
+	def entity_picture(self) -> str | None:
+		"""The app's icon, so cards show it instead of the star."""
+		return self.extra_state_attributes.get("icon_url")
+
+	@property
 	def extra_state_attributes(self) -> dict[str, Any]:
 		"""Return extra state attributes."""
 		child_data = self._get_child_data()
@@ -1307,13 +1473,7 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 		sorted_apps = sorted(app_breakdown.items(), key=lambda x: x[1], reverse=True)
 		package, seconds = sorted_apps[self._rank - 1]
 
-		# Find app details
-		app_name = package
-		apps = child_data.get("apps", [])
-		for app in apps:
-			if app.get("packageName") == package:
-				app_name = app.get("title", package)
-				break
+		app_name, icon_url = _app_details(child_data).get(package, (package, None))
 
 		hours = int(seconds // 3600)
 		mins = int((seconds % 3600) // 60)
@@ -1325,6 +1485,7 @@ class FamilyLinkTopAppSensor(ChildDataMixin, CoordinatorEntity, SensorEntity):
 			"rank": self._rank,
 			"app_name": app_name,
 			"package_name": package,
+			"icon_url": icon_url,
 			"total_seconds": seconds,
 			"formatted_time": f"{hours:02d}:{mins:02d}:{secs:02d}",
 			"hours": hours,
@@ -1346,7 +1507,8 @@ class FamilyLinkDeviceCountSensor(ChildDataMixin, CoordinatorEntity, SensorEntit
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Device Count"
+		self._attr_has_entity_name = True
+		self._attr_name = "Device Count"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_device_count"
 
 	@property
@@ -1405,7 +1567,8 @@ class FamilyLinkChildInfoSensor(ChildDataMixin, CoordinatorEntity, SensorEntity)
 	) -> None:
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
-		self._attr_name = f"{child_name} Child Info"
+		self._attr_has_entity_name = True
+		self._attr_name = "Child Info"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_child_info"
 
 	@property
@@ -1484,7 +1647,8 @@ class DailyLimitDeviceSensor(CoordinatorEntity, SensorEntity):
 		self._child_name = child_name
 		self._device_id = device_id
 		self._device_name = device_name
-		self._attr_name = f"{device_name} Daily Limit"
+		self._attr_has_entity_name = True
+		self._attr_name = "Daily Limit"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_daily_limit"
 		self._attr_icon = "mdi:timer-outline"
 		self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
@@ -1566,7 +1730,8 @@ class ActiveBonusSensor(CoordinatorEntity, SensorEntity):
 		self._child_name = child_name
 		self._device_id = device_id
 		self._device_name = device_name
-		self._attr_name = f"{device_name} Active Bonus"
+		self._attr_has_entity_name = True
+		self._attr_name = "Active Bonus"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_active_bonus"
 		self._attr_icon = "mdi:clock-plus-outline"
 		self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
@@ -1621,8 +1786,16 @@ class ActiveBonusSensor(CoordinatorEntity, SensorEntity):
 
 					if self._device_id in devices_time_data:
 						time_data = devices_time_data[self._device_id]
-						bonus_mins = time_data.get("bonus_minutes", 0)
+						bonus_mins = time_data.get("bonus_minutes") or 0
 						attributes["has_bonus"] = bonus_mins > 0
+						# Google reports when a bonus was granted, not when it ends:
+						# bonus minutes count down only while the device is used
+						granted_ms = time_data.get("bonus_granted_ms")
+						attributes["bonus_granted_at"] = (
+							dt_util.as_local(dt_util.utc_from_timestamp(granted_ms / 1000)).isoformat()
+							if bonus_mins > 0 and isinstance(granted_ms, int)
+							else None
+						)
 
 		return attributes
 
@@ -1646,7 +1819,8 @@ class FamilyLinkDeviceBatterySensor(ChildDataMixin, CoordinatorEntity, SensorEnt
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 		self._device_id = device_id
 		self._device_name = device_name
-		self._attr_name = f"{device_name} Battery Level"
+		self._attr_has_entity_name = True
+		self._attr_name = "Battery Level"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_battery_level"
 
 	@property
@@ -1689,7 +1863,8 @@ class FamilyLinkBatteryLevelSensor(ChildDataMixin, CoordinatorEntity, SensorEnti
 		"""Initialize the sensor."""
 		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
 
-		self._attr_name = f"{child_name} Battery Level"
+		self._attr_has_entity_name = True
+		self._attr_name = "Battery Level"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_battery_level"
 
 	@property
@@ -1769,3 +1944,181 @@ class FamilyLinkBatteryLevelSensor(ChildDataMixin, CoordinatorEntity, SensorEnti
 			attrs["last_update"] = location["timestamp_iso"]
 
 		return attrs
+
+
+def new_app_usage_sensors(
+	coordinator: FamilyLinkDataUpdateCoordinator,
+	known: set[str],
+	remembered: set[tuple[str, str | None, str]],
+	settings: AppUsageSettings | None = None,
+) -> list[FamilyLinkAppUsageSensor]:
+	"""The app usage sensors that are not there yet: the pinned and top apps, and the ones added earlier.
+
+	`known` holds the unique ids already created and is updated. `remembered` is
+	(child id, device id or None, package) of sensors found in the registry.
+	"""
+	settings = settings or AppUsageSettings()
+	created: list[FamilyLinkAppUsageSensor] = []
+	for child_data in (coordinator.data or {}).get("children_data", []):
+		child_id = child_data["child_id"]
+		child_name = child_data["child_name"]
+		screen_time = child_data.get("screen_time") or {}
+		devices = {device["id"]: device for device in child_data.get("devices", []) if device.get("id")}
+
+		wanted: list[tuple[str | None, str]] = [(None, package) for package in sorted(settings.pinned)]
+		wanted.extend(
+			(None, package)
+			for package in top_packages(screen_time.get("app_totals"), settings.per_child, settings.excluded)
+		)
+		for device_id, device in devices.items():
+			# A TV (or a watch) takes no time limits, so its apps are the ones nothing else limits
+			if device.get("capabilities") and not device_supports(device, *CAPS_TIME_LIMIT):
+				totals = (screen_time.get("device_app_totals") or {}).get(device_id)
+				wanted.extend(
+					(device_id, package)
+					for package in top_packages(totals, settings.per_device, settings.excluded)
+				)
+		wanted.extend((device_id, package) for child, device_id, package in sorted(remembered, key=str) if child == child_id)
+
+		for device_id, package in wanted:
+			unique_id = app_usage_unique_id(child_id, package, device_id)
+			if unique_id in known or (device_id and device_id not in devices):
+				continue
+			known.add(unique_id)
+			device = devices.get(device_id) if device_id else None
+			created.append(FamilyLinkAppUsageSensor(
+				coordinator, child_id, child_name, package,
+				device_id=device_id, device_name=device.get("name", "Unknown Device") if device else None,
+			))
+	return created
+
+
+class FamilyLinkAppUsageSensor(ChildDataMixin, CoordinatorEntity, RestoreEntity, SensorEntity):
+	"""Minutes one app was used today, by a child or on one device.
+
+	It counts up through the day and starts again at midnight. With the
+	total_increasing state class, Home Assistant keeps long-term statistics of
+	it: a statistics graph with the `change` type and a one-hour period shows the
+	minutes added per hour, in the hour Google received them (see app_usage.py).
+
+	Home Assistant reads a drop of 10% or more as a new count, so a value that
+	went down during the day (an app briefly missing from Google's answer) would
+	be counted again when it comes back. The value never goes down within a day:
+	it keeps the day's highest, also across a restart.
+	"""
+
+	_attr_has_entity_name = True
+	_attr_device_class = SensorDeviceClass.DURATION
+	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
+	_attr_state_class = SensorStateClass.TOTAL_INCREASING
+	_attr_icon = "mdi:chart-timeline-variant"
+
+	def __init__(
+		self,
+		coordinator: FamilyLinkDataUpdateCoordinator,
+		child_id: str,
+		child_name: str,
+		package: str,
+		device_id: str | None = None,
+		device_name: str | None = None,
+	) -> None:
+		"""Initialize the sensor."""
+		super().__init__(coordinator=coordinator, child_id=child_id, child_name=child_name)
+		self._package = package
+		self._device_id = device_id
+		self._device_name = device_name
+		self._day: Any = None
+		self._minutes: float | None = None
+		title, self._attr_entity_picture = _app_details(self._get_child_data()).get(package, (package, None))
+		self._attr_unique_id = app_usage_unique_id(child_id, package, device_id)
+		# The device name comes first: the child's hub, or the child's own copy
+		# of the device (a TV several children use is one device per child)
+		self._attr_name = f"{title} usage today"
+		self._update_minutes()
+
+	@property
+	def device_info(self) -> DeviceInfo:
+		"""The child, or the device the app is used on."""
+		if not self._device_id:
+			return super().device_info
+		return DeviceInfo(
+			identifiers={(DOMAIN, f"{self._child_id}_{self._device_id}")},
+			name=self._device_name,
+			manufacturer="Google",
+			model="Family Link Device",
+			**via_child(self.coordinator, self._child_id),
+		)
+
+	async def async_added_to_hass(self) -> None:
+		"""Start from the value saved before a restart, if it is today's."""
+		await super().async_added_to_hass()
+		last = await self.async_get_last_state()
+		if last is None or self._day is None:
+			return
+		try:
+			saved = float(last.state)
+		except (TypeError, ValueError):
+			return
+		if dt_util.as_local(last.last_changed).date() == self._day and saved > (self._minutes or 0):
+			self._minutes = saved
+
+	def _handle_coordinator_update(self) -> None:
+		self._update_minutes()
+		super()._handle_coordinator_update()
+
+	def _screen_time(self) -> dict[str, Any] | None:
+		child_data = self._get_child_data()
+		return (child_data or {}).get("screen_time") or None
+
+	def _update_minutes(self) -> None:
+		"""Today's minutes, never lower than earlier today; a new day starts over."""
+		screen_time = self._screen_time()
+		if screen_time is None:
+			return
+		if self._device_id:
+			on_device = (screen_time.get("device_screen_time") or {}).get(self._device_id) or {}
+			seconds = (on_device.get("app_breakdown") or {}).get(self._package, 0)
+		else:
+			seconds = (screen_time.get("app_breakdown") or {}).get(self._package, 0)
+		minutes = round(seconds / 60, 1)
+		day = screen_time.get("date")
+		if day == self._day and self._minutes is not None:
+			minutes = max(minutes, self._minutes)
+		self._day = day
+		self._minutes = minutes
+
+	@property
+	def native_value(self) -> float | None:
+		"""Minutes used today, 0 for an app not used yet today."""
+		if self._screen_time() is None:
+			return None
+		return self._minutes
+
+	@property
+	def available(self) -> bool:
+		"""Available while the child's screen time data is."""
+		return self.coordinator.last_update_success and self._screen_time() is not None
+
+	@property
+	def extra_state_attributes(self) -> dict[str, Any]:
+		"""The package, the seven days before today, and for a child's sensor the minutes per device."""
+		attributes: dict[str, Any] = {"package": self._package}
+		screen_time = self._screen_time()
+		if not screen_time:
+			return attributes
+		if "app_week_totals" in screen_time:
+			if self._device_id:
+				week = (screen_time.get("device_app_week_totals") or {}).get(self._device_id) or {}
+			else:
+				week = screen_time.get("app_week_totals") or {}
+			attributes["last_7_days_minutes"] = round(week.get(self._package, 0) / 60, 1)
+		if not self._device_id:
+			names = screen_time.get("device_names") or {}
+			per_device = {
+				names.get(item["device_id"], item["device_id"]): round(item["seconds"] / 60, 1)
+				for item in screen_time.get("app_device_usage") or []
+				if item.get("package") == self._package and item.get("seconds")
+			}
+			if per_device:
+				attributes["by_device"] = per_device
+		return attributes

@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Fork only] - theSiegs/HAFamilyLink, on top of 2.9.0rc2
+
+Not in upstream; kept on the fork's `ha/combined` branch.
+
+### Added
+- **App icons** - Each app in the `apps` attribute of the daily screen time sensors (per child and per device) now has an `icon_url` when Google provides one (the app's Play Store icon), and the top app sensors show the app's icon as their picture with an `icon_url` attribute. Dashboards can show real app icons next to usage.
+- **Yesterday, the week before today and when Google last got usage** - The child's daily screen time sensor gains `yesterday_minutes`, `last_7_days_minutes` (the seven days before today) and `data_updated`, read from the answer that already carried them. Google leaves out a day without usage, which reads as 0.
+- **Per-day history** - `history` on the daily screen time sensor: the earlier days Google returned (up to 30), in minutes. Templates and automations can read it; it is not stored by the Recorder.
+- **App usage sensors, for a usage-by-hour graph** - `sensor.<child>_<app>_usage_today` on the child for the 8 apps the child used most over the days Google returned (up to 30), and `sensor.<device>_<app>_usage_today` for the 5 used most on each device that takes no time limits (a Google TV or streamer, a watch). They count the minutes used today, restart at midnight and never go down within a day (also across a restart), so their long-term statistics give the minutes added per hour with a statistics graph (`change`, one-hour period). `last_7_days_minutes` per app in attributes, the app's icon as picture. The options set the counts and the apps always or never tracked; launchers and system screens are never ranked. History starts when a sensor is added.
+- **App usage event** - `event.<child>_app_usage` fires `usage_grew` for each app and device whose usage grew since the last refresh, with the app, the device, how much it grew, its total today and when Google received it. Google has no session times, so this is what was measured between refreshes, 5 to 20 minutes after the use.
+- **Device last activity** - `sensor.<device>_last_activity` (diagnostic): when Google last heard from the device. A check-in, not proof the child used it.
+- **Blueprint: block an app after some minutes a day** - For a Google TV, where Google ignores app limits but a block works. Family Link blocks the app for the child, so on every device of the child until the unblock time.
+- **Web filter: allow all sites** - `select.<child>_web_filter` and `set_filter_level` (2.3.2) gain the third mode of the app, "Allow all sites" (`all_sites`, no filter; Google reads it back as `allowByDefault`), also on the Family Link card's web tab. The select shows the mode just set when Google still answers with the previous one right after the change, and a refused change fails with an error.
+- **Delete old devices** - A device Google no longer lists (a reset phone, an emulator used once) can be deleted on its device page. A device still listed would come back, so it can't be.
+- **`reset_bonus` action** - Ends every bonus of the day on one device, as the device's Reset Bonus button does (bonuses added in the Family Link app too). Target any Family Link entity of the device, the button included, or pass `device_id`. Returns `cancelled`, the number of bonuses ended. Like the button, it tells strict mode the Home Assistant bonus was taken back.
+- **Paused apps on the apps with time limits sensor** - `paused_apps` lists each app `pause_app` paused for the child: `package`, `prior` (the setting `resume_app` puts back) and `pause_intact`, false once a parent changed the app's setting in the Family Link app.
+- **When a bonus was granted** - `bonus_granted_at` on the Active Bonus sensor, in local time, for a bonus from Home Assistant or the Family Link app. Google reports no end time: bonus minutes count down only while the device is used.
+
+### Changed
+- **`resume_app` keeps a parent's change** - It reads each app's current setting from Google and restores the saved one only while the app is still at the pause limit. A limit, unlimited time or no limit set in the Family Link app since the pause is kept and the saved setting dropped. The response gives each app in `results` as `restored`, `kept_current` (values in `kept_current`) or `not_paused`; when the current settings can't be read, the saved setting is restored as before and a warning logged (`current_state_read: false`). A new pause after such a change saves the parent's setting.
+- **Daily Limit Reached always names its child and device** - `child_id`, `device_id` and `device_name` stay on the sensor when Google returns no time data for the device.
+
+### Fixed
+- **Entity names no longer repeat the child or device name** - A new install named entities such as `sensor.alex_family_link_alex_battery_level` (the per-device battery sensor too). The child and device entities now take the device name in front once, and follow a device renamed in Home Assistant. Existing entity ids are kept; only the friendly names get shorter.
+- **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
+- **On a failed apps fetch the device names and the time Google last got usage are kept** - The fallback to the cached data named the devices by their raw id and dropped `data_updated` until the next good fetch.
+
+---
+
 ## [Unreleased]
 
 ### Added

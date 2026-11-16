@@ -1,0 +1,82 @@
+blueprint:
+  name: Family Link - block an app after some minutes a day
+  description: >-
+    Blocks an app for the child once its Family Link app usage sensor passes a
+    number of minutes today, and unblocks it at a set time. Made for a Google TV,
+    where Google ignores app time limits but a block works.
+
+
+    Family Link blocks an app for the child, not for one device: while it is
+    blocked, it is blocked on every device of that child, not only the TV. The
+    unblock also lifts a block you set by hand on the same app. The minutes come
+    from Google's uploads, so the block can come 5 to 20 minutes after the limit.
+  domain: automation
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    usage_sensor:
+      name: App usage sensor
+      description: A Family Link app usage sensor, for example one of an app on the TV.
+      selector:
+        entity:
+          filter:
+            - integration: familylink
+              domain: sensor
+              device_class: duration
+    minutes:
+      name: Minutes a day
+      description: The app is blocked once its usage today goes above this.
+      default: 60
+      selector:
+        number:
+          min: 1
+          max: 600
+          unit_of_measurement: min
+    unblock_at:
+      name: Unblock at
+      description: When the app is unblocked again (the usage starts over at midnight).
+      default: "06:00:00"
+      selector:
+        time: {}
+
+mode: queued
+
+triggers:
+  - trigger: numeric_state
+    entity_id: !input usage_sensor
+    above: !input minutes
+    id: block
+  - trigger: homeassistant
+    event: start
+    id: block
+  - trigger: time
+    at: !input unblock_at
+    id: unblock
+
+variables:
+  usage_sensor: !input usage_sensor
+  minutes: !input minutes
+  package: "{{ state_attr(usage_sensor, 'package') }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: block
+          - condition: template
+            value_template: "{{ package and states(usage_sensor) | float(0) > minutes | float }}"
+        sequence:
+          - action: familylink.block_app
+            data:
+              entity_id: "{{ usage_sensor }}"
+              package_name: "{{ package }}"
+      - conditions:
+          - condition: trigger
+            id: unblock
+          - condition: template
+            value_template: "{{ package }}"
+        sequence:
+          - action: familylink.unblock_app
+            data:
+              entity_id: "{{ usage_sensor }}"
+              package_name: "{{ package }}"

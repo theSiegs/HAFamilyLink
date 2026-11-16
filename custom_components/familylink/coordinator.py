@@ -12,6 +12,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -56,6 +57,7 @@ from .strict_mode import (
 	snapshot_policies,
 	snapshot_values,
 )
+from .usage_tracker import UsageGrowthTracker
 
 # A fetch error is bridged with the last good data for this long, no more
 LAST_KNOWN_DATA_MAX_AGE = timedelta(minutes=15)
@@ -123,6 +125,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		self._last_known_data: dict[str, Any] | None = None  # Cache for last successful fetch
 		self._last_known_at: datetime | None = None  # when it was fetched (local time)
 		self.child_device_ids: dict[str, str] = {}  # child_id -> registry id of the child's hub device
+		# Apps paused by pause_app and the setting each had before: {child_id: {package: setting}}
+		# (kept by app_pause.py, shown by the apps with time limits sensor)
+		self.paused_apps: dict[str, dict[str, int]] = {}
 		# Chrome site lists change rarely: read every WEBSITES_REFRESH seconds,
 		# and taken from the answer of a change made from Home Assistant (store_websites).
 		self._websites: dict[str, tuple[float, dict[str, Any] | None]] = {}  # child_id -> (read at, lists)
@@ -130,6 +135,9 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		# Google Play settings (#239): same pace, same handling of a failed read
 		self._play_settings: dict[str, tuple[float, dict[str, Any] | None]] = {}  # child_id -> (read at, settings)
 		self._play_settings_warned: set[str] = set()
+		# Apps whose usage grew since the last refresh, for the app usage event (event.py)
+		self._usage_growth = UsageGrowthTracker()
+		self._usage_refresh = 0  # tells one refresh's growth from the next one's
 
 		# Strict mode: Home Assistant reverts restriction changes made from the
 		# Family Link side (see strict_mode.py). The default and the rule set
@@ -313,11 +321,11 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			except Exception as err:
 				_LOGGER.warning(f"Failed to fetch apps and usage data for {child_name}: {err}")
 				# Try to recover apps_usage_data from last known data cache.
-				# Note: deviceInfo is intentionally left out here — the cached
-				# child stores already-parsed `devices`, not raw deviceInfo, so
-				# we restore the device list directly below (cached_devices)
-				# rather than re-deriving it from an empty deviceInfo (which
-				# would otherwise wipe every device on a transient 503).
+				# The cached child stores already-parsed `devices`, not raw
+				# deviceInfo: the device list is restored directly below
+				# (cached_devices) so a transient 503 does not wipe every device,
+				# and the screen time computation gets the device names
+				# (cachedDeviceNames) and the time Google last got usage.
 				if self._last_known_data:
 					for cached_child in self._last_known_data.get("children_data", []):
 						if cached_child.get("child_id") == child_id:
@@ -325,6 +333,10 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 								"apps": cached_child.get("apps", []),
 								"deviceInfo": [],
 								"appUsageSessions": cached_child.get("app_usage_sessions", []),
+								"lastActivityRefreshTimestampMillis": (cached_child.get("screen_time") or {}).get("data_refreshed_ms"),
+								"cachedDeviceNames": {
+									device["id"]: device.get("name") for device in cached_child.get("devices") or [] if device.get("id")
+								},
 							}
 							cached_devices = cached_child.get("devices")
 							_LOGGER.debug(f"Using cached apps/usage data for {child_name}")
@@ -652,6 +664,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 
 			websites = await self._async_child_websites(child_id, child_name)
 			play_settings = await self._async_child_play_settings(child_id, child_name)
+			usage_grew = self._usage_growth.update(child_id, screen_time, dt_util.utcnow())
+			self._usage_refresh += 1
 
 			# Store data for this child
 			child_data = {
@@ -662,6 +676,8 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				"time_limit_fresh": time_limit_fresh,
 				"applied_limits_fresh": applied_limits_fresh,
 				"screen_time": screen_time,
+				"usage_grew": usage_grew,
+				"usage_refresh": self._usage_refresh,
 				"location": location,
 				"contact_restriction": contact_restriction,
 				"device_batteries": device_batteries,
@@ -697,6 +713,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			for device in devices:
 				self._devices[f"{child_id}_{device['id']}"] = device
 
+		self._usage_growth.retain({child["child_id"] for child in children_data})
 		_LOGGER.debug("Successfully updated all Family Link data")
 		return {
 			"family_members": family_members,
@@ -1155,6 +1172,34 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			"devices": dict(devices),
 			"values": copy.deepcopy(entry.get("values", {})),
 		}
+
+	async def async_reset_bonus(self, child_id: str, device_id: str) -> int:
+		"""End every bonus of the day on a device; returns how many were cancelled.
+
+		Bonuses stack on Google's side and the applied limits only report the
+		most recent one: every bonus of the day is cancelled, and the reported
+		id is the fallback when the override block could not be read (#142).
+		Used by the reset bonus button and the reset_bonus action. Raises when
+		a reported bonus could not be cancelled; no bonus at all is 0.
+		"""
+		if self.client is None:
+			raise HomeAssistantError("Cannot cancel time bonus: client not connected")
+		override_id = None
+		for child_data in (self.data or {}).get("children_data", []):
+			if child_data.get("child_id") == child_id:
+				override_id = ((child_data.get("devices_time_data") or {}).get(device_id) or {}).get("bonus_override_id")
+				break
+		cancelled = await self.client.async_cancel_all_time_bonuses(device_id=device_id, account_id=child_id)
+		if not cancelled and override_id:
+			if not await self.client.async_cancel_time_bonus(override_id=override_id, account_id=child_id):
+				raise HomeAssistantError(f"Failed to cancel time bonus for device {device_id}")
+			cancelled = 1
+		if cancelled:
+			# The parent took the bonus back: strict mode no longer protects one on this device
+			self.restore_ha_bonus(device_id, None)
+		_LOGGER.info(f"Cancelled {cancelled} time bonus(es) on device {device_id}")
+		await self.async_request_refresh()
+		return cancelled
 
 	def restore_ha_bonus(self, device_id: str, previous: float | None) -> None:
 		"""Undo register_ha_bonus after a bonus Google did not take."""

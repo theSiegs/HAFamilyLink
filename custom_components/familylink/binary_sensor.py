@@ -169,7 +169,8 @@ class BedtimeActiveBinarySensor(DeviceTimeBinarySensor):
 		"""Initialize the bedtime active sensor."""
 		super().__init__(coordinator, device_id, device_name, device, child_id, child_name)
 
-		self._attr_name = f"{device_name} Bedtime Active"
+		self._attr_has_entity_name = True
+		self._attr_name = "Bedtime Active"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_bedtime_active"
 
 	@property
@@ -235,7 +236,8 @@ class SchoolTimeActiveBinarySensor(DeviceTimeBinarySensor):
 		"""Initialize the school time active sensor."""
 		super().__init__(coordinator, device_id, device_name, device, child_id, child_name)
 
-		self._attr_name = f"{device_name} School Time Active"
+		self._attr_has_entity_name = True
+		self._attr_name = "School Time Active"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_schooltime_active"
 
 	@property
@@ -301,7 +303,8 @@ class DailyLimitReachedBinarySensor(DeviceTimeBinarySensor):
 		"""Initialize the daily limit reached sensor."""
 		super().__init__(coordinator, device_id, device_name, device, child_id, child_name)
 
-		self._attr_name = f"{device_name} Daily Limit Reached"
+		self._attr_has_entity_name = True
+		self._attr_name = "Daily Limit Reached"
 		self._attr_unique_id = f"{DOMAIN}_{child_id}_{device_id}_daily_limit_reached"
 
 	@property
@@ -326,16 +329,16 @@ class DailyLimitReachedBinarySensor(DeviceTimeBinarySensor):
 	@property
 	def extra_state_attributes(self) -> dict[str, Any]:
 		"""Return extra state attributes."""
-		time_data = self._get_device_time_data()
-		if not time_data:
-			return {}
-
+		# Who and which device always, so a consumer can match it per child
 		attributes = {
 			"device_id": self._device_id,
 			"device_name": self._device_name,
 			"child_id": self._child_id,
 			"child_name": self._child_name,
 		}
+		time_data = self._get_device_time_data()
+		if not time_data:
+			return attributes
 
 		remaining_minutes = time_data.get("remaining_minutes")
 		if remaining_minutes is not None:

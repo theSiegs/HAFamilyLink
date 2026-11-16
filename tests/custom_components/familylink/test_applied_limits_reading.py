@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 from custom_components.familylink.client import api as api_module
 from custom_components.familylink.client.api import FamilyLinkClient
 from custom_components.familylink.coordinator import FamilyLinkDataUpdateCoordinator
+from custom_components.familylink.usage_tracker import UsageGrowthTracker
 
 CHILD_ID = "child-1"
 UNLOCKED = "device-a"
@@ -123,6 +124,8 @@ async def test_child_limit_is_unknown_when_no_device_reports_it() -> None:
     coordinator._pending_time_limit_states = {}
     coordinator._async_child_websites = AsyncMock(return_value=None)
     coordinator._async_child_play_settings = AsyncMock(return_value=None)
+    coordinator._usage_growth = UsageGrowthTracker()
+    coordinator._usage_refresh = 0
 
     data = await coordinator._async_fetch_data()
 

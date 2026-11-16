@@ -117,7 +117,7 @@ async def test_filter_level_refusal_is_an_error() -> None:
         await client.async_set_website_filter_level("123", FamilyLinkClient.WEBSITE_FILTER_FILTERED)
 
 
-@pytest.mark.parametrize(("read", "level"), [("safeSites", "filtered"), ("blockByDefault", "approved_only"), ("something", None), (None, None)])
+@pytest.mark.parametrize(("read", "level"), [("allowByDefault", "all_sites"), ("safeSites", "filtered"), ("blockByDefault", "approved_only"), ("something", None), (None, None)])
 def test_filter_level_read_names(read, level) -> None:
     assert FamilyLinkClient.website_filter_level(read) == level
 
@@ -242,6 +242,22 @@ async def test_get_sites_returns_the_lists(hass, site_services) -> None:
 
     assert result["blocked"] == ["manual.example"]
     assert result["approved"] == ["*.wikipedia.*"]
+    assert result["from_list"] == []
+    assert result["from_list_by_url"] == {}
+
+
+async def test_get_sites_marks_what_a_list_sync_added_and_is_still_blocked(hass, site_services) -> None:
+    await Store(hass, 1, f"{DOMAIN}.site_sync").async_save(
+        {CHILD: {LIST_URL: ["*.listed.example", "*.gone.example"]}, "other-child": {LIST_URL: ["*.x.example"]}}
+    )
+    site_services.client.async_get_website_restrictions.return_value = {
+        "filter_level": "safeSites", "approved": [], "blocked": ["manual.example", "*.listed.example"],
+    }
+
+    result = await _call(hass, "get_sites", {"child_id": CHILD})
+
+    assert result["from_list"] == ["*.listed.example"]
+    assert result["from_list_by_url"] == {LIST_URL: ["*.listed.example"]}
 
 
 async def test_block_and_allow_send_normalised_patterns(hass, site_services) -> None:
@@ -619,7 +635,8 @@ def test_sensors_show_count_sorted_sites_and_filter_level() -> None:
     approved = FamilyLinkWebsitesSensor(coordinator, CHILD, "Alex", "approved")
 
     assert blocked.unique_id == f"{DOMAIN}_{CHILD}_blocked_sites"
-    assert blocked.name == "Alex Blocked Sites"
+    assert blocked.has_entity_name
+    assert blocked.name == "Blocked Sites"
     assert blocked.available
     assert blocked.native_value == 2
     assert blocked.extra_state_attributes == {

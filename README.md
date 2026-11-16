@@ -70,6 +70,8 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_screen_time_formatted` | Child | The same value as `HH:MM:SS` text |
 | `sensor.<child>_installed_apps`, `_blocked_apps`, `_apps_with_time_limits`, `_apps_without_limits`, `_always_allowed_apps` | Child | App counts, with the matching app lists in attributes |
 | `sensor.<child>_top_app_1` to `_top_app_10` | Child | Today's most-used apps, usage in minutes |
+| `sensor.<child>_<app>_usage_today`, `sensor.<device>_<app>_usage_today` | Child, device | Minutes one app was used today: the 8 apps the child used most (all devices together, `by_device` in attributes), and the 5 used most on each device that takes no time limits, such as a TV or a watch. `last_7_days_minutes` in attributes. A TV several children use is one device per child: rename them (for example "Lounge TV (Alex)") to tell them apart. See [Usage by hour](#usage-by-hour) |
+| `event.<child>_app_usage` | Child | Fires `usage_grew` for each app and device whose usage grew since the last refresh: `package`, `app`, `device`, `grew_minutes`, `today_minutes`, `reported_at`. See [App usage event](#app-usage-event) |
 | `sensor.<child>_device_count` | Child | Number of supervised devices |
 | `sensor.<child>_child_info` | Child | Profile: name, email, birthday, age band |
 | `sensor.<child>_battery_level` | Child (GPS opt-in) | Battery of the device providing the location (see `sensor.<device>_battery_level` for each device) |
@@ -80,7 +82,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<child>_play_purchase_approvals`, `_play_apps_games_rating` | Child | Google Play settings (Family Link "Controls" > "Google Play"), read-only: which purchases and downloads need a parent's approval (`all_content`, `paid_content`, `in_app_purchases`, `never`) and the highest apps & games rating allowed, as Google labels it for the account's region (e.g. `PEGI 16`); Google's own value and the list of choices in attributes; read every 15 minutes, two Google calls per child |
 | `select.<child>_play_purchase_approvals`, `_play_apps_games_rating` | Child | The same two Google Play settings, to change from Home Assistant: the approval mode, and the apps & games rating among the ones Google offers the child. A change is kept only once Google's answer confirms it |
 | `select.<child>_allowed_calls_texts` | Child | Choose who can call and text the child: anyone, only contacts you add, or contacts you add and limited groups |
-| `select.<child>_web_filter` | Child | Chrome web filter mode: only the approved sites, or every site with Google's explicit-content filter |
+| `select.<child>_web_filter` | Child | Chrome web filter mode: all sites, only the approved sites, or every site with Google's explicit-content filter. With the school time sensors, an automation can open the web for homework and go back to approved sites after |
 | `switch.<child>_strict_mode` | Child | Strict mode on or off for this child (see below). Attributes: rules in force, last corrective action, count |
 | `number.<child>_<weekday>_limit` | Child | Screen time quota of that weekday in minutes, as the weekly limits screen of the app shows it (the weekly value, or today's override when Google applies one; see the `source` and `applied_override` attributes). Setting it writes the weekly quota of that weekday, as the weekly limits screen of the app does; today's entity also posts today's override on every device so the change applies at once |
 | `time.<child>_<weekday>_bedtime_start`, `_bedtime_end` | Child | Start and end of that weekday's bedtime in the weekly schedule. Setting one rewrites the slot (the other bound is kept) |
@@ -90,6 +92,7 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `sensor.<device>_daily_limit` | Device | Configured daily quota in minutes |
 | `sensor.<device>_active_bonus` | Device | Active bonus minutes (0 when none) |
 | `sensor.<device>_daily_screen_time` | Device | Today's screen time on this device in minutes, per-app breakdown in attributes; unknown while the data is missing |
+| `sensor.<device>_last_activity` | Device (diagnostic) | When Google last heard from the device: a check-in, not proof the child used it |
 | `sensor.<device>_battery_level` | Device | Battery of this device in percent, no GPS needed; unavailable while Google reports no level |
 | `binary_sensor.<device>_bedtime_active`, `_school_time_active` | Device | Currently inside the bedtime / school time window |
 | `binary_sensor.<device>_daily_limit_reached` | Device | Daily limit used up (ignores bonus time) |
@@ -98,6 +101,53 @@ Each child appears as a hub device named `<child> (Family Link)`, with every phy
 | `button.<device>_ring` | Device | Ring the device to locate it |
 
 GPS entities are only created when location tracking is enabled in the integration options (off by default; each location poll may notify the child's device).
+
+### Usage by hour
+
+The app usage sensors count up through the day and start again at midnight, so Home Assistant keeps long-term statistics of them. A statistics graph with the `change` type and a one-hour period shows the minutes added per hour:
+
+```yaml
+type: statistics-graph
+title: YouTube by hour
+entities:
+  - sensor.alex_family_link_youtube_usage_today
+stat_types:
+  - change
+period: hour
+days_to_show: 7
+chart_type: bar
+```
+
+- **Which apps.** Each child gets the apps used most over the days Google returned (up to 30), and each device that takes no time limits (a Google TV or streamer, a watch) the apps used most on it. Launchers and system screens are left out. The integration options set how many (8 and 5 by default, 0 for none), the apps that always get a sensor and the apps that never do.
+- **What the hours mean.** Google reports a daily total per app and device, not when it was used, so the hour is the one in which Google received the usage: a phone uploads about every 5 minutes, a tablet every 15 to 20. Usage a device uploads after midnight counts for the day before, which these sensors no longer follow: the last minutes of a late evening can be missing from the graph (the daily screen time sensor's `history` has them).
+- **History** starts when a sensor is added; earlier days cannot be filled in.
+- **A sensor stays** once it has been added, also when its app drops out of the ranking. To drop one, disable it: a deleted one comes back while its app ranks.
+- **The value never goes down within a day**, also across a restart, because Home Assistant would read a drop as a new count and count the minutes twice.
+
+### App usage event
+
+Google has no session times, only a daily total per app and device that each device uploads in batches (about every 5 minutes for a phone in use, 15 to 20 for a tablet). The event reports what was measured: an app whose total grew between two refreshes, by how much (`grew_minutes`), its total today and when Google received it (`reported_at`; the use itself happened before). The first refresh of a day, or after a restart, only sets the baseline.
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.alex_family_link_app_usage
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.device == 'Lounge TV' }}"
+  - condition: state
+    entity_id: binary_sensor.alex_tablet_bedtime_active
+    state: "on"
+actions:
+  - action: notify.notify
+    data:
+      message: "{{ trigger.to_state.attributes.app }} on the TV during bedtime ({{ trigger.to_state.attributes.grew_minutes }} min)"
+```
+### Block an app after some minutes a day
+
+Google TV ignores Family Link app time limits, but blocking an app works there. The blueprint [`blueprints/automation/familylink/block_app_after_daily_minutes.yaml`](blueprints/automation/familylink/block_app_after_daily_minutes.yaml) blocks an app once its app usage sensor passes a number of minutes today and unblocks it at a set time (06:00 by default). Import it from its GitHub address in Settings > Automations & scenes > Blueprints.
+
+Family Link blocks an app for the child, not for one device: while it is blocked, it is blocked on every device of that child. The unblock also lifts a block set by hand on the same app, and the block can come 5 to 20 minutes after the limit, as the minutes come from the devices' uploads.
 
 ### Strict mode
 
@@ -127,10 +177,11 @@ Enable it with the **Strict mode** option of the integration (default for every 
 |---------|---------|
 | `familylink.block_app` / `familylink.unblock_app` | Block or unblock a single app by package name |
 | `familylink.set_app_daily_limit` | Per-app daily limit: minutes, blocked, limit off, or unlimited time |
-| `familylink.pause_app` / `familylink.resume_app` | Pause apps with a 1-minute daily limit instead of blocking them (a paused Google Messages keeps the texts that arrive), then put each app's earlier setting back |
+| `familylink.pause_app` / `familylink.resume_app` | Pause apps with a 1-minute daily limit instead of blocking them (a paused Google Messages keeps the texts that arrive), then put each app's earlier setting back, unless a parent changed it in the Family Link app since |
 | `familylink.block_device_for_school` | Block every app except an essentials whitelist (dialer, messages, settings, maps, ...) plus your own additions |
 | `familylink.unblock_all_apps` | Unblock every hidden app |
 | `familylink.add_time_bonus` | Add 1 to 1440 bonus minutes to a device |
+| `familylink.reset_bonus` | End every bonus of the day on a device |
 | `familylink.set_daily_limit` | Set today's quota on a device, or a weekday's weekly quota with `day` (0 disables the device for the day) |
 | `familylink.enable_daily_limit` / `familylink.disable_daily_limit` | Toggle the daily screen time limit |
 | `familylink.enable_bedtime` / `familylink.disable_bedtime` | Toggle bedtime, effective tonight (weekly toggle plus a same-day override) |
@@ -140,7 +191,7 @@ Enable it with the **Strict mode** option of the integration (default for every 
 | `familylink.enable_school_time` / `familylink.disable_school_time` | Toggle school time |
 | `familylink.get_sites`, `familylink.block_site`, `familylink.allow_site`, `familylink.remove_site` | Read and edit the child's Chrome site lists (approved and blocked sites, wildcards allowed) |
 | `familylink.sync_site_list` | Keep the blocked sites in step with a published list of domains (https, administrators only); removes only what the list added, `stop: true` takes it all back |
-| `familylink.set_filter_level` | Switch the Chrome web filter between the approved sites only and every site with Google's filter (`approved_only` / `filtered`); also `select.<child>_web_filter` |
+| `familylink.set_filter_level` | Switch the Chrome web filter between all sites, the approved sites only and every site with Google's filter (`all_sites` / `approved_only` / `filtered`); also `select.<child>_web_filter` |
 | `familylink.refresh_location` | Force a fresh GPS fix (uses more battery than the regular polling) |
 | `familylink.ring_device` | Make a device ring so it can be found |
 | `familylink.set_update_interval` | Change the polling interval until the next restart (e.g. slower at night) |

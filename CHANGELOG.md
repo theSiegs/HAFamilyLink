@@ -29,6 +29,7 @@ Not in upstream; kept on the fork's `ha/combined-next-2` branch.
 - **Daily Limit Reached always names its child and device** - `child_id`, `device_id` and `device_name` stay on the sensor when Google returns no time data for the device.
 
 ### Fixed
+- **A pause right after a resume no longer saves the pause itself** - `pause_app` reads the app's current setting from Google before saving it, as `resume_app` does. Right after a resume the integration's own data can still show the 1-minute pause; saving that as the setting to come back to left the app at 1 minute after the next resume, with no record of the pause.
 - **Entity names no longer repeat the child or device name** - A new install named entities such as `sensor.alex_family_link_alex_battery_level` (the per-device battery sensor too). The child and device entities now take the device name in front once, and follow a device renamed in Home Assistant. Existing entity ids are kept; only the friendly names get shorter.
 - **No warning every minute for a child without a location device** - With location tracking on, a child whose devices don't share location (Google returns no location for them) logged "Invalid location array" at every refresh. That is now a debug message and the tracker stays unknown; a location Google does return in an unexpected shape is still logged as a warning.
 - **On a failed apps fetch the device names and the time Google last got usage are kept** - The fallback to the cached data named the devices by their raw id and dropped `data_updated` until the next good fetch.
